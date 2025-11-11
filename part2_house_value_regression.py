@@ -582,9 +582,9 @@ def perform_hyperparameter_search(x_train_full, y_train_full):
     print(f"Best K-Fold Validation RMSE: {best_score:.2f}")
     print(f"Best Hyperparameters: {best_params}")
 
-    print(f"\nTop 3 Parameter Combinations:")
+    print(f"\nTop 10 Parameter Combinations:")
     print("-" * 70)
-    for i, result in enumerate(results[:3]):
+    for i, result in enumerate(results[:10]):
         p = result[0]
         print(f"{i + 1}. Avg Val Loss: {result[1]:.4f}")
         print(f"   LR={p['lr']:.4f}, WD={p['wd']:.4f}, Batch={p['bs']}, "
