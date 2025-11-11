@@ -3,51 +3,68 @@ import torch.nn as nn
 import pickle
 import numpy as np
 import pandas as pd
+import sklearn
+import torch.utils.data as data_utils
 from torch.utils.data import TensorDataset, DataLoader
+from sklearn.pipeline import Pipeline
 from sklearn import preprocessing
-from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.compose import ColumnTransformer
+from sklearn.impute import KNNImputer, SimpleImputer
+from sklearn.model_selection import train_test_split, KFold
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 import matplotlib.pyplot as plt
+import seaborn as sns
+import itertools
 
 
 class NeuralNet(nn.Module):
 
-    def __init__(self, input_layer_neurons, n_hidden_layers=2, first_layer_neurons=64):
-        """ Initialises a flexible network.
+    # --- MODIFIED ---
+    def __init__(self, input_size, n_hidden_layers, neurons, arch_type="pyramid", activation='relu'):
+        """
+        Initialises a flexible network.
 
-            Args:
-                layer_sizes (list): A list of layer sizes, starting with the
-                                    input size and ending with the output size.
-                                    e.g., [9, 64, 32, 1]
-        """ ### FULLY CONNECTED LAYER ARCHITECTURE
-
+        Arguments:
+            - input_size {int} -- Number of input features (e.g., 13)
+            - n_hidden_layers {int} -- Number of *hidden* layers
+            - neurons {int} -- Number of neurons in the *first* hidden layer
+            - arch_type {str} -- 'pyramid' (e.g., 128->64->32) or 'rectangular' (e.g., 64->64->64)
+        """
         super().__init__()
 
-        # Input layer is the size of the input features
-        layer_sizes = [input_layer_neurons]
+        # Set activation function
+        if activation.lower() == 'relu':
+            self.activation = nn.ReLU()
+        elif activation.lower() == 'sigmoid':
+            self.activation = nn.Sigmoid()
+        elif activation.lower() == 'lrelu':
+            self.activation = nn.LeakyReLU()
+        else:
+            raise ValueError("Activation must be 'relu', 'lrelu' or 'sigmoid'")
 
-        # Add first hidden layer
-        current_neurons = first_layer_neurons
-        layer_sizes.append(current_neurons)
+        layer_sizes = [input_size]
+        current_neurons = neurons
 
-        # Add the rest of the hidden layers, decaying each time
-        for _ in range(n_hidden_layers - 1):
-            current_neurons = max(1, int(current_neurons / 2))
-            layer_sizes.append(current_neurons)
+        if arch_type == "pyramid":
+            for _ in range(n_hidden_layers):
+                layer_sizes.append(current_neurons)
+                # Decay neurons, but never go below a reasonable minimum (e.g., 4)
+                current_neurons = max(4, int(current_neurons / 2))
+        elif arch_type == "rectangular":  # Rectangular
+            for _ in range(n_hidden_layers):
+                layer_sizes.append(neurons)
 
-        layer_sizes.append(1)
+        layer_sizes.append(1)  # Final output layer
 
         print(f"Building network with architecture: {layer_sizes}")
-        layers = []
-        # Loop until the second-to-last item
-        for i in range(len(layer_sizes) - 2):
-            # Add a Linear layer
-            layers.append(nn.Linear(layer_sizes[i], layer_sizes[i + 1]))
-            # Add a ReLU
-            layers.append(nn.ReLU())
 
-        # Add the final Linear layer (without ReLU)
-        layers.append(nn.Linear(layer_sizes[-2], layer_sizes[-1]))
+        layers = []
+        for i in range(len(layer_sizes) - 1):
+            layers.append(nn.Linear(layer_sizes[i], layer_sizes[i + 1]))
+            # Add ReLU *except* for the final output layer
+            if i < len(layer_sizes) - 2:
+                layers.append(self.activation)
 
         self.linear_relu_stack = nn.Sequential(*layers)
 
@@ -59,7 +76,6 @@ class NeuralNet(nn.Module):
 class Regressor:
 
     def __init__(self, x,
-                 loss_fun="mse",
                  learning_rate=0.01,
                  weight_decay=0.0,
                  n_hidden_layers=2,
@@ -67,8 +83,9 @@ class Regressor:
                  nb_epoch = 1000,
                  device=None,
                  batch_size=64,
-                 lr_decay_step=100,
-                 lr_decay_gamma=1.0
+                 architecture_type="pyramid",
+                 activation="relu",
+                 training=True
                  ):
         # You can add any input parameters you need
         # Remember to set them with a default value for LabTS tests
@@ -90,24 +107,25 @@ class Regressor:
         #######################################################################
         #                       ** START OF YOUR CODE **
         #######################################################################
-        # To store parameters for preprocessing generated from training data
-        column_headers = x.columns
-        row_labels = ['mean', 'median', 'mode']
-        self.preprocessing_params = pd.DataFrame(columns=column_headers, index=row_labels)
-        self.lb = preprocessing.LabelBinarizer()
+        # # To store parameters for preprocessing generated from training data
+        # column_headers = x.columns
+        # row_labels = ['mean', 'median', 'mode']
+        # self.preprocessing_params = pd.DataFrame(columns=column_headers, index=row_labels)
+        # self.lb = preprocessing.LabelBinarizer()
+        # self.scaler = StandardScaler()
 
         self.nb_epoch = nb_epoch
-        self.loss_fun = loss_fun
+        # self.loss_fun = loss_fun
+        self.activation = activation
         self.learning_rate = learning_rate
         self.weight_decay = weight_decay
-        self.network = None
-        self.optimizer = None
         self.n_hidden_layers = n_hidden_layers
         self.first_layer_neurons = first_layer_neurons
         self.batch_size = batch_size
-        self.lr_decay_step = lr_decay_step
-        self.lr_decay_gamma = lr_decay_gamma
-        self.scheduler = None
+        # self.scheduler = None
+        self.architecture_type = architecture_type
+        # self.numerical_cols = None
+
         if device is None:
             self.device = torch.device("cpu")
             print("Warning: No device specified, using CPU.")
@@ -117,14 +135,26 @@ class Regressor:
         # Initialise storage for loss history
         self.train_loss_history = []
         self.val_loss_history = []
+        self.early_stopping = True
 
         # To store loss function
-        if self.loss_fun == "mse":
-            self._loss_layer = torch.nn.MSELoss()
-        elif self.loss_fun == "cross_entropy":
-            self._loss_layer = torch.nn.CrossEntropyLoss()
-        else:
-            print(f"Invalid loss function input, please provide either {'mse'} or {'cross_entropy'} as loss function inputs")
+        self._loss_layer = torch.nn.MSELoss()
+
+        if training:
+            X, _ = self._preprocessor(x, training=training)
+            input_size = X.shape[1]
+
+            self.network = NeuralNet(input_size,
+                                     self.n_hidden_layers,
+                                     self.first_layer_neurons,
+                                     self.architecture_type,
+                                     activation=self.activation).to(self.device)
+
+            self.optimizer = torch.optim.Adam(
+                self.network.parameters(),
+                lr=self.learning_rate,
+                weight_decay=self.weight_decay
+            )
 
         return
 
@@ -162,65 +192,36 @@ class Regressor:
         # Delete rows where target value is NaN, must be done before processing X
         if y is not None:
             target_present_mask = y.iloc[:, 0].notna()
-            x  = x[target_present_mask]
+            x = x[target_present_mask]
             y = y[target_present_mask]
 
-        cat_col = "ocean_proximity"
-        # If we are training the model, generate pre-processing parameters from training data
+        # Fit preprocessor only during training
         if training:
+            numeric_features = ["longitude", "latitude", "housing_median_age", "total_rooms", "total_bedrooms",
+                                "population", "households", "median_income"]
+            categorical_features = ["ocean_proximity"]
 
-            # Handle categorical features
-            # Store the node and fit the binarizer
-            self.preprocessing_params.loc["mode", cat_col] = x[cat_col].mode()[0]
-            x[cat_col] = x[cat_col].fillna(value=self.preprocessing_params.loc["mode", cat_col])
-            self.lb.fit(x["ocean_proximity"])
+            numeric_transformer = Pipeline(steps=[
+                ("imputer", KNNImputer(n_neighbors=5, weights="uniform")),
+                ("scaler", StandardScaler())])
+            categorical_transformer = Pipeline(steps=[
+                ("imputer", SimpleImputer(strategy="most_frequent")),
+                ("onehot", OneHotEncoder(handle_unknown="ignore"))])
+            self.preprocessor = ColumnTransformer(
+                transformers=[
+                    ("numeric", numeric_transformer, numeric_features),
+                    ("categorical", categorical_transformer, categorical_features)],
+                remainder="passthrough")
 
+            self.preprocessor.fit(x)
 
-            # Handle numerical features
-            for column in x.columns:
-                # Skip the categorical columns
-                if column == cat_col:
-                    continue
+        # Apply transformations
+        x = self.preprocessor.transform(x)
+        x = torch.tensor(x, dtype=torch.float32)
+        if y is not None:
+            y = torch.tensor(y.values, dtype=torch.float32)
 
-                # Generate and store mean and median values generated from training data
-                self.preprocessing_params.loc["mean", column] = np.mean(x[column])
-                self.preprocessing_params.loc["median", column] = np.median(x[column])
-
-        # Process categorical features with parameters from training data
-        # Fill NA values with the stored node
-        x[cat_col] = x[cat_col].fillna(value=self.preprocessing_params.loc["mode", cat_col])
-
-        # Transform the column with stored fit for one-hot encoding
-        one_hot_cols = self.lb.transform(x[cat_col])
-        one_hot_df = pd.DataFrame(one_hot_cols, columns=self.lb.classes_, index=x.index)
-        x = x.drop(columns=cat_col)
-        x = x.join(one_hot_df)
-
-        # Process numerical features with parameters from training data
-        for column in x.columns:
-            # Skip the categorical columns that were just added
-            if column in self.lb.classes_:
-                continue
-
-            # Fill NaN values with "mean"
-            x[column] = x[column].fillna(value=self.preprocessing_params.loc["mean", column])
-
-            # Normalise by dividing all values with "mean"
-            x[column] = x[column] / self.preprocessing_params.loc["mean", column]
-
-        # Convert preprocessed input features to tensors
-        x_tensor = self.df_to_tensor(x)
-
-        # # Preprocess target values
-        # y_tensor = None
-        # if y is not None:
-        #     # Apply pre-processing to targets
-        #     y = np.log1p(y)  # Log-transform, hence no parameter needed from training datass@
-
-        y_tensor = self.df_to_tensor(y)
-
-        # Return preprocessed x and y, return None for y if it was None
-        return x_tensor, (y_tensor if isinstance(y, pd.DataFrame) else None)
+        return x, y
 
         #######################################################################
         #                       ** END OF YOUR CODE **
@@ -245,25 +246,6 @@ class Regressor:
         #                       ** START OF YOUR CODE **
         #######################################################################
         X_train_processed, Y_train_processed = self._preprocessor(x_train, y = y_train, training = True) # Do not forget
-
-        if self.network is None:
-
-            # Get the input shape after processing features
-            processed_input_shape = X_train_processed.shape[1]
-
-            # Create network and optimizer
-            self.network = NeuralNet(processed_input_shape, self.n_hidden_layers, self.first_layer_neurons).to(self.device)
-            self.optimizer = torch.optim.SGD(
-                self.network.parameters(),
-                lr=self.learning_rate,
-                weight_decay=self.weight_decay
-            )
-
-            self.scheduler = torch.optim.lr_scheduler.StepLR(
-                self.optimizer,
-                step_size=self.lr_decay_step,
-                gamma=self.lr_decay_gamma
-            )
 
         # Load training data in by batches
         train_data = TensorDataset(X_train_processed, Y_train_processed)
@@ -290,8 +272,7 @@ class Regressor:
 
             for X_batch, Y_batch in train_dataloader:
                 # Move data to same device as model
-                X_batch = X_batch.to(self.device)
-                Y_batch = Y_batch.to(self.device)
+                X_batch, Y_batch = X_batch.to(self.device), Y_batch.to(self.device)
 
                 # Forward pass through the network
                 Y_train_prediction = self.network.forward(X_batch)
@@ -324,8 +305,7 @@ class Regressor:
                     X_val_processed, Y_val_processed = self._preprocessor(x_val, y_val, training=False)
 
                     # Move validation data to device
-                    X_val_processed = X_val_processed.to(self.device)
-                    Y_val_processed = Y_val_processed.to(self.device)
+                    X_val_processed, Y_val_processed = X_val_processed.to(self.device), Y_val_processed.to(self.device)
 
                     # Get predictions
                     Y_val_prediction = self.network(X_val_processed)
@@ -343,18 +323,34 @@ class Regressor:
                         f"Epoch {n + 1}/{self.nb_epoch}, Avg. Train Loss: {avg_epoch_loss:.4f}, Val. Loss: {epoch_val_loss_str}")
 
                 # --- Early Stopping Check ---
-                if epoch_val_loss < best_val_loss:
-                    best_val_loss = epoch_val_loss
-                    epochs_no_improve = 0
-                    torch.save(self.network.state_dict(), 'best_model.pth')
-                else:
-                    epochs_no_improve += 1
+                if self.early_stopping:
+                    if epoch_val_loss < best_val_loss:
+                        best_val_loss = epoch_val_loss
+                        epochs_no_improve = 0
+                        # Save the best model state
+                        best_model_state = {
+                            "epoch": n,
+                            "model_state_dict": self.network.state_dict(),
+                            "optimizer_state_dict": self.optimizer.state_dict(),
+                            "val_loss": epoch_val_loss
+                        }
+                    else:
+                        epochs_no_improve += 1
 
-                if epochs_no_improve >= patience:
-                    print(f"Early stopping triggered at epoch {n+1}")
-                    break
+                    if epochs_no_improve >= patience:
+                        print(f"Early stopping triggered at epoch {n+1}")
+                        # Restore the best model weights
+                        self.network.load_state_dict(best_model_state["model_state_dict"])
+                        self.optimizer.load_state_dict(best_model_state["optimizer_state_dict"])
+                        break
+                    #
 
-                self.scheduler.step()
+        # If training completed without early stopping, restore best model if available
+        if self.early_stopping and best_model_state is not None and epochs_no_improve < patience:
+            print(f"Training completed!")
+            print(f"Best validation loss: {best_val_loss:.4f}")
+            self.network.load_state_dict(best_model_state["model_state_dict"])
+            self.optimizer.load_state_dict(best_model_state["optimizer_state_dict"])
 
         return self.network
 
@@ -388,9 +384,9 @@ class Regressor:
             Y_prediction = self.network.forward(X_processed)
 
         # Invert the log-transform, np.expm1 is the inverse of np.log1p
-        # Y_prediction_unscaled = torch.expm1(Y_prediction_log)
+        # Y_prediction_unscaled = torch.expm1(Y_prediction)
 
-        return Y_prediction
+        return Y_prediction.cpu().numpy()
 
         #######################################################################
         #                       ** END OF YOUR CODE **
@@ -415,7 +411,7 @@ class Regressor:
         #######################################################################
 
         # X, Y = self._preprocessor(x, y = y, training = False) # Do not forget
-        y_pred = self.predict(x).detach().cpu().numpy()
+        y_pred = self.predict(x)
 
         # Get true values from the original dataframe
         y_true = y.values
@@ -449,10 +445,6 @@ class Regressor:
         #######################################################################
         #                       ** END OF YOUR CODE **
         #######################################################################
-
-
-    def df_to_tensor(self, df):
-        return torch.tensor(df.values).float()
 
 
     def plot_loss_history(self, save_path=None):
@@ -507,120 +499,159 @@ def load_regressor():
     return trained_model
 
 
-def perform_hyperparameter_search(x_train, y_train, x_val, y_val):
-    # Ensure to add whatever inputs you deem necessary to this function
+def perform_hyperparameter_search(x_train_full, y_train_full):
     """
-    Performs a hyper-parameter for fine-tuning the regressor implemented
-    in the Regressor class.
-
-    Arguments:
-        Add whatever inputs you need.
-
-    Returns:
-        The function should return your optimised hyper-parameters.
-
-    """ ### ADD K-FOLD, PRINT TOP 5 PARAM COMBOS, BATCH_SIZE // 2
-
+    Performs K-Fold cross-validation hyperparameter search.
+    """
     #######################################################################
     #                       ** START OF YOUR CODE **
     #######################################################################
 
-    print("\n--- Starting Hyperparameter Search ---")
+    print("\n--- Starting K-Fold Hyperparameter Search ---")
 
-    # Define search space for hyperparameters
-    learning_rates = [0.0001, 0.001, 0.01]
-    weight_decays = [0.0, 0.001]
-    n_hidden_layers = [2, 3]
-    first_layer_neurons = [128, 64, 32]
-    batch_sizes = [50, 100]
-    lr_gammas = [0.9, 0.5]
+    # --- Define search space ---
+    param_grid = {
+        "lr": [0.001, 0.01],
+        "wd" : [0.0, 0.001],
+        "n_layers" : [2, 4, 6],
+        "first_neurons" : [32, 64, 128, 256],
+        "bs" : [32, 64, 128],
+        "arch_type" : ["pyramid", "rectangular"],
+        "activation": ["relu", "sigmoid", "lrelu"]
+    }
+
+    # Generate all possible combinations
+    keys = list(param_grid.keys())
+    all_combinations = list(itertools.product(*[param_grid[key] for key in keys]))
+
+    # --- End search space ---
 
     best_score = float('inf')
     best_params = {}
-    results = []
+    results = []  # To store results for analysis
+
+    # --- K-Fold setup ---
+    k_folds = 10  # Increase this for proper training later on
+    kfold = KFold(n_splits=k_folds, shuffle=True, random_state=42)
 
     # Simple grid search
-    for lr in learning_rates:
-        for wd in weight_decays:
-            for n_layers in n_hidden_layers:
-                for first_neurons in first_layer_neurons:  # New loop
-                    for bs in batch_sizes:
-                        for gamma in lr_gammas:
+    for idx, combination in enumerate(all_combinations):
+        params = dict(zip(keys, combination))
 
-                            print(f"Testing params: lr={lr}, wd={wd}, layers={n_layers}, first_neurons={first_neurons}, batch={bs}, gamma={gamma}")
+        fold_scores = []
+        # --- K-Fold Loop ---
+        for fold, (train_ids, val_ids) in enumerate(kfold.split(x_train_full)):
+            print(f"  --- Fold {fold + 1}/{k_folds} ---")
+            # Get data for this fold
+            x_train_fold, y_train_fold = x_train_full.iloc[train_ids], y_train_full.iloc[train_ids]
+            x_val_fold, y_val_fold = x_train_full.iloc[val_ids], y_train_full.iloc[val_ids]
 
-                            # Create model
-                            regressor = Regressor(
-                                x_train,
-                                loss_fun="mse",
-                                learning_rate=lr,
-                                weight_decay=wd,
-                                n_hidden_layers=n_layers,
-                                first_layer_neurons=first_neurons,
-                                nb_epoch=200,
-                                device=set_device(),
-                                batch_size=bs,
-                                lr_decay_gamma=gamma,
-                                lr_decay_step=100
-                            )
+            # Create a NEW regressor for each fold
+            regressor = Regressor(
+                x_train_fold,
+                learning_rate=params["lr"],
+                weight_decay=params["wd"],
+                n_hidden_layers=params["n_layers"],
+                first_layer_neurons=params["first_neurons"],
+                nb_epoch=500,  # Epoch cap for search
+                device=set_device(),
+                batch_size=params["bs"],
+                architecture_type=params["arch_type"],
+                training=True
+            )
 
-                            # Train model
-                            regressor.fit(x_train, y_train, x_val, y_val, patience=10)
+            regressor.fit(x_train_fold, y_train_fold, x_val_fold, y_val_fold, patience=15)
+            score = regressor.score(x_val_fold, y_val_fold, print_metrics=False)
+            fold_scores.append(score)
 
-                            # Score on validation set
-                            score = regressor.score(x_val, y_val, print_metrics=False)
+        # --- End K-Fold Loop ---
+        avg_score = np.mean(fold_scores)
+        print(f"--- Avg. K-Fold RMSE: {avg_score:.2f} ---")
 
-                            print(f"Validation RMSE: {score:.2f}")
-                            results.append({
-                                 'lr': lr,
-                                 'wd': wd,
-                                 'n_layers': n_layers,
-                                 'first_neurons': first_neurons,
-                                 'bs': bs,
-                                 'gamma': gamma,
-                                 'score': score
-                            })
+        params['score'] = avg_score
+        results.append((params, avg_score))
 
-                            if score < best_score:
-                                best_score = score
-                                best_params = {
-                                    'lr': lr,
-                                    'wd': wd,
-                                    'n_layers': n_layers,
-                                    'first_neurons': first_neurons,
-                                    'bs': bs,
-                                    'gamma': gamma,
-                                    'score': score,
-                                    'regressor': regressor
-                                }
+        if avg_score < best_score:
+            best_score = avg_score
+            best_params = params
+
+    # Sort results by average validation loss
+    results.sort(key=lambda x: x[1])
 
     print("\n--- Hyperparameter Search Complete ---")
-    print(f"Best Validation RMSE: {best_score:.2f}")
+    print(f"Best K-Fold Validation RMSE: {best_score:.2f}")
     print(f"Best Hyperparameters: {best_params}")
 
-    # Plot results
-    plt.figure(figsize=(12, 6))
-    param_labels = [
-        f"lr={r['lr']}, L={r['n_layers']}, N={r['first_neurons']}, bs={r['bs']}"
-        for r in results
-    ]
-    scores = [r['score'] for r in results]
+    print(f"\nTop 10 Parameter Combinations:")
+    print("-" * 70)
+    for i, result in enumerate(results[:10]):
+        p = result[0]
+        print(f"{i + 1}. Avg Val Loss: {result[1]:.4f}")
+        print(f"   LR={p['lr']:.4f}, WD={p['wd']:.4f}, Batch={p['bs']}, "
+              f"Layers={p['n_layers']}, Size={p['first_neurons']}, "
+              f"Act={p['activation']}")
+    print("=" * 70 + "\n")
 
-    plt.bar(param_labels, scores)
-    plt.xticks(rotation=90)
-    plt.title("Hyperparameter Search Results (Validation RMSE)")
-    plt.ylabel("RMSE")
-    plt.tight_layout()
-    plt.savefig("hyperparameter_search_results.png")
-    print("Saved hyperparameter search results plot.")
-
-
-    # Return the best params
-    return best_params # Return the chosen hyper parameters
-
+    # Return best params AND the full results for analysis
+    return best_params, results
     #######################################################################
     #                       ** END OF YOUR CODE **
     #######################################################################
+
+
+def analyze_hp_search(results):
+    """
+    Analyzes and plots the results of the hyperparameter search.
+    """
+    if not results:
+        print("No results to analyze.")
+        return
+
+    result_list = []
+    for result in results:
+        result_list.append(result[0])
+
+    # Convert results list to a DataFrame for easy analysis
+    results_df = pd.DataFrame(result_list)
+
+    # Get all hyperparameter columns (exclude 'score')
+    hp_cols = list(set(results_df.columns) - {'score'})
+
+    print("\n--- Hyperparameter Performance Analysis (Average RMSE) ---")
+
+    for hp in hp_cols:
+        # Group by the hyperparameter and get the mean score
+        hp_performance = results_df.groupby(hp)['score'].mean().sort_values()
+
+        print(f"\n--- Performance by {hp} ---")
+        print(hp_performance)
+
+        # Plot and save
+        plt.figure(figsize=(8, 4))
+        hp_performance.plot(kind='bar')
+        plt.title(f"Average RMSE by {hp}")
+        plt.ylabel("Average RMSE")
+        plt.xticks(rotation=45)
+        plt.tight_layout()
+        plt.savefig(f"hp_analysis_{hp}.png")
+        print(f"Saved plot to hp_analysis_{hp}.png")
+
+    # --- Heatmap for 2 most important parameters (e.g., lr vs. n_layers) ---
+    print("\n--- Generating Heatmap (lr vs. first_neurons) ---")
+    try:
+        heatmap_data = results_df.pivot_table(
+            index='lr',
+            columns='first_neurons',
+            values='score'
+        )
+        plt.figure(figsize=(10, 7))
+        sns.heatmap(heatmap_data, annot=True, fmt=".2f", cmap="viridis_r")
+        plt.title("Heatmap of Avg. RMSE (lr vs. first_neurons)")
+        plt.savefig("hp_heatmap_lr_vs_neurons.png")
+        print("Saved heatmap to hp_heatmap_lr_vs_neurons.png")
+    except Exception as e:
+        print(f"Could not generate heatmap: {e}")
+
 
 
 def train_val_test_split(x, y, test_size=0.2, val_size=0.2, random_state=42, stratify=False):
@@ -646,7 +677,7 @@ def train_val_test_split(x, y, test_size=0.2, val_size=0.2, random_state=42, str
     stratify_array_1 = y if stratify else None
 
     # Split into (Train + Val) and Test split
-    x_train_val, x_test, y_train_val, y_test = train_test_split(
+    x_train_full, x_test, y_train_full, y_test = train_test_split(
         x, y,
         test_size=test_size,
         random_state=random_state,
@@ -654,27 +685,34 @@ def train_val_test_split(x, y, test_size=0.2, val_size=0.2, random_state=42, str
     )
 
     # Determine stratification for the second split
-    stratify_array_2 = y_train_val if stratify else None
+    stratify_array_2 = y_train_full if stratify else None
 
     # Split (Train + Val) into Train and Val
     x_train, x_val, y_train, y_val = train_test_split(
-        x_train_val, y_train_val,
+        x_train_full, y_train_full,
         test_size=val_size,
         random_state=random_state,
         stratify=stratify_array_2
     )
 
-    return x_train, x_val, x_test, y_train, y_val, y_test
+    return x_train_full, x_train, x_val, x_test, y_train_full, y_train, y_val, y_test
 
 
 def set_device():
-    # setting the device to mps for mac OS
-    if torch.backends.mps.is_available():
+    # 1. Check for NVIDIA GPU
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+        print("Using NVIDIA GPU (CUDA)")
+
+    # 2. Check for Apple Silicon GPU (local M1/M2/M3 Macs)
+    elif torch.backends.mps.is_available():
         device = torch.device("mps")
-        print("Using Apple Silicon GPU via MPS")
+        print("Using Apple Silicon GPU (MPS)")
+
+    # 3. Fallback to CPU
     else:
         device = torch.device("cpu")
-        print("MPS not available, using CPU")
+        print("No GPU available, using CPU")
 
     return device
 
@@ -693,7 +731,7 @@ def example_main():
     y = data.loc[:, [output_label]]
 
     # Splitting into train, validation and test dataset
-    x_train, x_val, x_test, y_train, y_val, y_test = train_val_test_split(
+    x_train_full, x_train, x_val, x_test, y_train_full, y_train, y_val, y_test = train_val_test_split(
         x, y, test_size=0.2, val_size=0.2, random_state=42, stratify=False
     )
 
@@ -703,19 +741,22 @@ def example_main():
     # to make sure the model isn't overfitting
 
     # Perform hyperparameter search to look for the best parameters
-    best_params = perform_hyperparameter_search(x_train, y_train, x_val, y_val)
+    best_params, all_results = perform_hyperparameter_search(x_train_full, y_train_full)
+
+    # plot results
+    analyze_hp_search(all_results)
 
     # Build regressor model with best parameters from hyperparameter search
     regressor = Regressor(x_train,
-                          loss_fun = "mse",
                           learning_rate=best_params['lr'],
                           weight_decay=best_params['wd'],
                           n_hidden_layers=best_params['n_layers'],
                           first_layer_neurons=best_params['first_neurons'],
                           batch_size=best_params['bs'],
-                          lr_decay_gamma=best_params['gamma'],
+                          architecture_type=best_params['arch_type'],
                           nb_epoch=5000,
-                          device=set_device()
+                          device=set_device(),
+                          training=True
     )
 
     # Train the model

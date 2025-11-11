@@ -121,11 +121,9 @@ class SigmoidLayer(Layer):
         #######################################################################
         #                       ** START OF YOUR CODE **
         #######################################################################
-        x_inv = np.linalg.inv(x)
-        output = 1 / (1 + np.exp(x_inv))
-        self._cache_current = output
+        self._cache_current = 1 / (1 + np.exp(-x))
 
-        return output
+        return self._cache_current
         #######################################################################
         #                       ** END OF YOUR CODE **
         #######################################################################
@@ -208,10 +206,7 @@ class ReluLayer(Layer):
         #######################################################################
 
         # Computing differentiation results of Relu activation function with respect to inputs to the function
-        self._cache_current[self._cache_current <= 0] = 0
-        self._cache_current[self._cache_current > 0] = 1
-
-        return grad_z * self._cache_current
+        return grad_z * (self._cache_current > 0).astype(float)
 
         #######################################################################
         #                       ** END OF YOUR CODE **
@@ -238,7 +233,7 @@ class LinearLayer(Layer):
         #                       ** START OF YOUR CODE **
         #######################################################################
         self._W = xavier_init((self.n_in, self.n_out))
-        self._b = xavier_init((1, self.n_out))
+        self._b = np.zeros((1, self.n_out))
 
         self._cache_current = None
         self._grad_W_current = None
@@ -265,7 +260,7 @@ class LinearLayer(Layer):
         #                       ** START OF YOUR CODE **
         #######################################################################
         # Computing the outputs of this layer
-        Z = np.dot(x, self._W) + self._b
+        Z = x @ self._W + self._b
 
         # Storing x for gradient computation at later stages
         self._cache_current = x
@@ -292,12 +287,11 @@ class LinearLayer(Layer):
         #######################################################################
         #                       ** START OF YOUR CODE **
         #######################################################################
-        X_T = np.transpose(self._cache_current)
-        T_1 = np.ones((1, grad_z.shape[0]))
-        self._grad_W_current = np.dot(X_T, grad_z)
-        self._grad_b_current = np.dot(T_1, grad_z)
-        grad_x = np.dot(grad_z, np.transpose(self._W))
-        return grad_x
+        x = self._cache_current
+        self._grad_W_current = x.T @ grad_z
+        self._grad_b_current = np.ones((grad_z.shape[0], 1)).T @ grad_z
+
+        return grad_z @ self._W.T
         #######################################################################
         #                       ** END OF YOUR CODE **
         #######################################################################
@@ -347,12 +341,20 @@ class MultiLayerNetwork:
         #                       ** START OF YOUR CODE **
         #######################################################################
 
-        # Create the first layer
-        self._layers = [LinearLayer(self.input_dim, self.neurons[0])]
+        self._layers = []
 
-        # Create subsequent layers
-        for i in range(len(self.neurons)-1):
-            self._layers.append(LinearLayer(self.neurons[i], self.neurons[i+1]))
+        current_dim = input_dim
+        for n_neurons, activation in zip(neurons, activations):
+            self._layers.append(LinearLayer(current_dim, n_neurons))
+            if activation == "sigmoid":
+                self._layers.append(SigmoidLayer())
+            elif activation == "relu":
+                self._layers.append(ReluLayer())
+            elif activation == "identity":
+                pass
+            else:
+                raise ValueError(f"Unknown activation function {activation}")
+            current_dim = n_neurons
 
         #######################################################################
         #                       ** END OF YOUR CODE **
@@ -538,39 +540,18 @@ class Trainer:
         #######################################################################
         #                       ** START OF YOUR CODE **
         #######################################################################
-        n_batches = int(len(input_dataset) / self.batch_size)
+        if self.shuffle_flag:
+            input_dataset, target_dataset = self.shuffle(input_dataset, target_dataset)
 
-        # Repeat for n_epoch times
-        for n in range(self.nb_epoch):
-            print(f"Starting epoch {n} ............ ")
-            # Shuffle dataset if flag is set to True
-            if self.shuffle_flag:
-                input_dataset, target_dataset = self.shuffle(input_dataset, target_dataset)
+        input_batches = np.array_split(input_dataset, len(input_dataset) // self.batch_size, axis=0)
+        target_batches = np.array_split(target_dataset, len(target_dataset) // self.batch_size, axis=0)
 
-            # Separating input and target dataset to mini batches
-            input_batches = []
-            target_batches = []
-            for i in range(n_batches):
-                input_batch = input_dataset[i * self.batch_size:(i + 1) * self.batch_size]
-                target_batch = target_dataset[i * self.batch_size:(i + 1) * self.batch_size]
-                input_batches.append(input_batch)
-                target_batches.append(target_batch)
-
-            # Training the network with minibatch gradient descent
-            for i in range(len(input_batches)):
-                # Forward pass through the multi-layer network
-                y_prediction = self.network.forward(input_batches[i])
-
-                # Calculate loss from outputs of the multi-layer network
-                self._loss_layer.forward(y_prediction, target_batches[i])
-
-                # Compute gradient of loss with respect to output layer from multi-layer network
-                grad_loss_output = self._loss_layer.backward()
-
-                # Backpropagate to gradient of loss with respect to input parameters
-                grad_loss_input = self.network.backward(grad_loss_output)
-
-                # Update network parameters based on gradients
+        for _ in range(self.nb_epoch):
+            for input_batch, target_batch in zip(input_batches, target_batches):
+                predictions = self.network.forward(input_batch)
+                loss = self._loss_layer.forward(predictions, target_batch)
+                grad_loss = self._loss_layer.backward()
+                self.network.backward(grad_loss)
                 self.network.update_params(self.learning_rate)
         #######################################################################
         #                       ** END OF YOUR CODE **
