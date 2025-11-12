@@ -1,3 +1,4 @@
+from email import generator
 import torch
 import torch.nn as nn
 import pickle
@@ -14,7 +15,6 @@ from sklearn.impute import KNNImputer, SimpleImputer
 from sklearn.model_selection import train_test_split, KFold
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 import matplotlib.pyplot as plt
-import seaborn as sns
 import itertools
 import random
 
@@ -241,6 +241,8 @@ class Regressor:
         X_train_processed, Y_train_processed = self._preprocessor(x_train, y = y_train, training = True) # Do not forget
 
         # Load training data in by batches
+        generator = torch.Generator()
+        generator.manual_seed(42)
         train_data = TensorDataset(X_train_processed, Y_train_processed)
         train_dataloader = DataLoader(train_data, batch_size=self.batch_size, shuffle=True)
 
@@ -626,21 +628,21 @@ def analyze_hp_search(results):
         plt.savefig(f"hp_analysis_{hp}.png")
         print(f"Saved plot to hp_analysis_{hp}.png")
 
-    # --- Heatmap for 2 most important parameters (e.g., lr vs. n_layers) ---
-    print("\n--- Generating Heatmap (lr vs. first_neurons) ---")
-    try:
-        heatmap_data = results_df.pivot_table(
-            index='lr',
-            columns='first_neurons',
-            values='score'
-        )
-        plt.figure(figsize=(10, 7))
-        sns.heatmap(heatmap_data, annot=True, fmt=".2f", cmap="viridis_r")
-        plt.title("Heatmap of Avg. RMSE (lr vs. first_neurons)")
-        plt.savefig("hp_heatmap_lr_vs_neurons.png")
-        print("Saved heatmap to hp_heatmap_lr_vs_neurons.png")
-    except Exception as e:
-        print(f"Could not generate heatmap: {e}")
+    # # --- Heatmap for 2 most important parameters (e.g., lr vs. n_layers) ---
+    # print("\n--- Generating Heatmap (lr vs. first_neurons) ---")
+    # try:
+    #     heatmap_data = results_df.pivot_table(
+    #         index='lr',
+    #         columns='first_neurons',
+    #         values='score'
+    #     )
+    #     plt.figure(figsize=(10, 7))
+    #     sns.heatmap(heatmap_data, annot=True, fmt=".2f", cmap="viridis_r")
+    #     plt.title("Heatmap of Avg. RMSE (lr vs. first_neurons)")
+    #     plt.savefig("hp_heatmap_lr_vs_neurons.png")
+    #     print("Saved heatmap to hp_heatmap_lr_vs_neurons.png")
+    # except Exception as e:
+    #     print(f"Could not generate heatmap: {e}")
 
 
 
