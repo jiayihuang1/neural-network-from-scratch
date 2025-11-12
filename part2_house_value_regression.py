@@ -16,6 +16,7 @@ from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 import matplotlib.pyplot as plt
 import seaborn as sns
 import itertools
+import random
 
 
 class NeuralNet(nn.Module):
@@ -107,24 +108,16 @@ class Regressor:
         #######################################################################
         #                       ** START OF YOUR CODE **
         #######################################################################
-        # # To store parameters for preprocessing generated from training data
-        # column_headers = x.columns
-        # row_labels = ['mean', 'median', 'mode']
-        # self.preprocessing_params = pd.DataFrame(columns=column_headers, index=row_labels)
-        # self.lb = preprocessing.LabelBinarizer()
-        # self.scaler = StandardScaler()
 
+        # Storing parameters
         self.nb_epoch = nb_epoch
-        # self.loss_fun = loss_fun
         self.activation = activation
         self.learning_rate = learning_rate
         self.weight_decay = weight_decay
         self.n_hidden_layers = n_hidden_layers
         self.first_layer_neurons = first_layer_neurons
         self.batch_size = batch_size
-        # self.scheduler = None
         self.architecture_type = architecture_type
-        # self.numerical_cols = None
 
         if device is None:
             self.device = torch.device("cpu")
@@ -382,9 +375,6 @@ class Regressor:
         self.network.eval()
         with torch.no_grad():
             Y_prediction = self.network.forward(X_processed)
-
-        # Invert the log-transform, np.expm1 is the inverse of np.log1p
-        # Y_prediction_unscaled = torch.expm1(Y_prediction)
 
         return Y_prediction.cpu().numpy()
 
@@ -717,8 +707,28 @@ def set_device():
     return device
 
 
+def set_seed(seed):
+    """
+    Sets the random seed for Python, NumPy, and PyTorch for reproducibility.
+    """
+    # Set Python's built-in random seed
+    random.seed(seed)
+
+    # Set NumPy's random seed
+    np.random.seed(seed)
+
+    # Set PyTorch's random seed for CPU
+    torch.manual_seed(seed)
+
+    # Set PyTorch's random seed for GPU (if available)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)  # For multi-GPU setups
+
+
 def example_main():
 
+    set_seed(42)
     output_label = "median_house_value"
 
     # Use pandas to read CSV data as it contains various object types
@@ -743,7 +753,7 @@ def example_main():
     # Perform hyperparameter search to look for the best parameters
     best_params, all_results = perform_hyperparameter_search(x_train_full, y_train_full)
 
-    # plot results
+    # Plot results
     analyze_hp_search(all_results)
 
     # Build regressor model with best parameters from hyperparameter search
