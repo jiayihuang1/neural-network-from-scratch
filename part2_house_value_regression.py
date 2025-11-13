@@ -8,7 +8,6 @@ import itertools
 import sys
 import matplotlib.pyplot as plt
 
-from datetime import datetime
 from sklearn.impute import KNNImputer, SimpleImputer
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.compose import ColumnTransformer
