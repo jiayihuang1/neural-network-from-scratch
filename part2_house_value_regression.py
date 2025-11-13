@@ -1,153 +1,175 @@
-from email import generator
-import logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 import torch
 import torch.nn as nn
 import pickle
 import numpy as np
 import pandas as pd
-import sklearn
-import torch.utils.data as data_utils
-from torch.utils.data import TensorDataset, DataLoader
-from sklearn.pipeline import Pipeline
-from sklearn import preprocessing
+import logging
+import itertools
+import sys
+import matplotlib.pyplot as plt
+
+from datetime import datetime
+from sklearn.impute import KNNImputer, SimpleImputer
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.compose import ColumnTransformer
-from sklearn.impute import KNNImputer, SimpleImputer
-from sklearn.model_selection import train_test_split, KFold
+from sklearn.pipeline import Pipeline
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
-import matplotlib.pyplot as plt
-import itertools
-import random
+from sklearn.model_selection import train_test_split, KFold
+from torch.utils.data import TensorDataset, DataLoader
 
+# Create a custom logger
+custom_log_name = sys.argv[1] if len(sys.argv) > 1 else "regression"
+log_filename = f"log_{custom_log_name}.log"
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+file_handler = logging.FileHandler(log_filename)
+file_handler.setLevel(logging.DEBUG)
+formatter = logging.Formatter(
+    "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S"
+)
+file_handler.setFormatter(formatter)
+logger.addHandler(file_handler)
 
 class NeuralNet(nn.Module):
-    def __init__(self, input_size, n_hidden_layers, neurons, arch_type="pyramid", activation='relu'):
+    def __init__(self,
+                 input_size,
+                 n_neurons,
+                 n_hidden_layers,
+                 architecture,
+                 activation,
+                 ):
         """
-        Initialises a flexible network.
+        Initialises a custom neural network with specified configuration.
 
         Arguments:
             - input_size {int} -- Number of input features (e.g., 13)
-            - n_hidden_layers {int} -- Number of *hidden* layers
-            - neurons {int} -- Number of neurons in the *first* hidden layer
-            - arch_type {str} -- 'pyramid' (e.g., 128->64->32) or 'rectangular' (e.g., 64->64->64)
+            - n_neurons {int} -- Number of neurons in the first hidden layer, also base number for other layers
+            - n_hidden_layers {int} -- Number of hidden layers
+            - arch_type {str} -- Architecture type of neural network:
+                                    - pyramid (e.g., 128->64->32)
+                                    - rectangular (e.g., 64->64->64)
+            - activation {str} -- Activation function to use
         """
         super().__init__()
 
-        # Set activation function
-        if activation.lower() == 'relu':
-            self.activation = nn.ReLU()
-        elif activation.lower() == 'sigmoid':
-            self.activation = nn.Sigmoid()
-        elif activation.lower() == 'lrelu':
-            self.activation = nn.LeakyReLU()
-        else:
-            raise ValueError("Activation must be 'relu', 'lrelu' or 'sigmoid'")
+        # Get activation function
+        activation_functions = {
+            "relu": nn.ReLU(),
+            "sigmoid": nn.Sigmoid(),
+            "leakyrelu": nn.LeakyReLU()
+        }
 
-        layer_sizes = [input_size]
-        current_neurons = neurons
+        try:
+            self.activation = activation_functions[activation.lower()]
+        except KeyError:
+            raise ValueError(f"Activation must be 'relu', 'leakyrelu' or 'sigmoid'")
 
-        if arch_type == "pyramid":
+        # Get neural network layers
+        layers = [nn.Linear(input_size, n_neurons), self.activation]
+
+        # Create layers based on architecture type
+        if architecture.lower() == "pyramid":
+            layer_size = n_neurons
             for _ in range(n_hidden_layers):
-                layer_sizes.append(current_neurons)
-                # Decay neurons, but never go below a reasonable minimum (e.g., 4)
-                current_neurons = max(4, int(current_neurons / 2))
-        elif arch_type == "rectangular":  # Rectangular
-            for _ in range(n_hidden_layers):
-                layer_sizes.append(neurons)
-
-        layer_sizes.append(1)  # Final output layer
-
-        logging.info(f"Building network with architecture: {layer_sizes}")
-
-        layers = []
-        for i in range(len(layer_sizes) - 1):
-            layers.append(nn.Linear(layer_sizes[i], layer_sizes[i + 1]))
-            # Add ReLU *except* for the final output layer
-            if i < len(layer_sizes) - 2:
+                # Decay layer size but not below a reasonable minimum (e.g., 4)
+                layers.append(nn.Linear(layer_size, max(4, int(layer_size / 2))))
                 layers.append(self.activation)
+                layer_size = max(4, int(layer_size / 2))
 
-        self.linear_relu_stack = nn.Sequential(*layers)
+        elif architecture.lower() == "rectangular":
+            for _ in range(n_hidden_layers):
+                layers.append(nn.Linear(n_neurons, n_neurons))
+                layers.append(self.activation)
+        
+        # Append final output layer
+        layers.append(nn.Linear(layers[-2].out_features, 1))  # Final output layer
 
+        self.network = nn.Sequential(*layers)
+        
+        # Logging for info
+        logger.info(f"NeuralNet initialized with architecture {[layer.out_features for layer in layers if isinstance(layer, nn.Linear)]}")
+        logger.info(f"Activation function: {activation}")
 
     def forward(self, x):
-        return self.linear_relu_stack(x)
-
+        return self.network(x)
 
 class Regressor:
-
-    def __init__(self, x,
-                 learning_rate=0.01,
+    def __init__(self,
+                 x,
+                 nb_epoch=1000,
+                 learning_rate=0.001,
                  weight_decay=0.0,
-                 n_hidden_layers=2,
-                 first_layer_neurons=64,
-                 nb_epoch = 1000,
-                 device=None,
-                 batch_size=64,
-                 architecture_type="pyramid",
+                 batch_size=32,
+                 n_neurons=64,
+                 n_hidden_layers=4,
+                 architecture="pyramid",
                  activation="relu",
-                 training=True
+                 training=True,
+                 early_stopping=True,
                  ):
         # You can add any input parameters you need
         # Remember to set them with a default value for LabTS tests
-        """
+        """ 
         Initialise the model.
-
+          
         Arguments:
-            - x {pd.DataFrame} -- Raw input data of shape
-                (batch_size, input_size), used to compute the size
+            - x {pd.DataFrame} -- Raw input data of shape 
+                (batch_size, input_size), used to compute the size 
                 of the network.
-            - nb_epoch {int} -- Number of epochs to train the network.
+            - nb_epoch {int} -- number of epochs to train the network.
             - learning_rate {float} -- Learning rate for the optimizer.
-            - weight_decay {float} -- L2 regularization strength.
-            - layer_sizes {list} -- List of layer sizes.
-            - loss_fun {str} -- "mse" or "cross_entropy".
-
+            - weight_decay {float} -- Weight decay (L2 penalty) for the optimizer.
+            - batch_size {int} -- Batch size for training.
+            - n_neurons {int} -- Number of neurons in the first hidden layer, also base number for other layers.
+            - n_hidden_layers {int} -- Number of hidden layers.
+            - architecture {str} -- Architecture type of neural network:
+                                    - pyramid (e.g., 128->64->32)
+                                    - rectangular (e.g., 64->64->64)
+            - activation {str} -- Activation function to use
+            - training {bool} -- Boolean indicating if model training or inference.
         """
 
         #######################################################################
         #                       ** START OF YOUR CODE **
         #######################################################################
 
-        # Storing parameters
+        # Initialize model and training parameters
         self.nb_epoch = nb_epoch
-        self.activation = activation
         self.learning_rate = learning_rate
         self.weight_decay = weight_decay
-        self.n_hidden_layers = n_hidden_layers
-        self.first_layer_neurons = first_layer_neurons
         self.batch_size = batch_size
-        self.architecture_type = architecture_type
+        self.early_stopping = early_stopping
 
-        if device is None:
-            self.device = torch.device("cpu")
-            logging.warning("No device specified, using CPU.")
+        self.n_neurons = n_neurons
+        self.n_hidden_layers = n_hidden_layers
+        self.architecture = architecture
+        self.activation = activation
+
+        if torch.cuda.is_available():
+            self.device = torch.device("cuda")
+        elif torch.backends.mps.is_available():
+            self.device = torch.device("mps")
         else:
-            self.device = device
+            self.device = torch.device("cpu")
+        logger.info(f"Using device: {self.device}")
 
-        # Initialise storage for loss history
-        self.train_loss_history = []
-        self.val_loss_history = []
-        self.early_stopping = True
-
-        # To store loss function
-        self._loss_layer = torch.nn.MSELoss()
-
+        # Initialize neural network
         if training:
             X, _ = self._preprocessor(x, training=training)
             input_size = X.shape[1]
 
-            self.network = NeuralNet(input_size,
-                                     self.n_hidden_layers,
-                                     self.first_layer_neurons,
-                                     self.architecture_type,
+            self.network = NeuralNet(input_size=input_size,
+                                     n_hidden_layers=self.n_hidden_layers,
+                                     n_neurons=self.n_neurons,
+                                     architecture=self.architecture,
                                      activation=self.activation).to(self.device)
 
-            self.optimizer = torch.optim.Adam(
-                self.network.parameters(),
-                lr=self.learning_rate,
-                weight_decay=self.weight_decay
-            )
+            self.optimizer = torch.optim.Adam(self.network.parameters(),
+                                              lr=self.learning_rate,
+                                              weight_decay=self.weight_decay)
+
+        self.loss_layer = nn.MSELoss()
 
         return
 
@@ -155,15 +177,18 @@ class Regressor:
         #                       ** END OF YOUR CODE **
         #######################################################################
 
-    def _preprocessor(self, x, y = None, training = False):
-        """
+    def _preprocessor(self,
+                      x,
+                      y=None,
+                      training=False):
+        """ 
         Preprocess input of the network.
-
+          
         Arguments:
-            - x {pd.DataFrame} -- Raw input array of shape
+            - x {pd.DataFrame} -- Raw input array of shape 
                 (batch_size, input_size).
             - y {pd.DataFrame} -- Raw target array of shape (batch_size, 1).
-            - training {boolean} -- Boolean indicating if we are training or
+            - training {bool} -- Boolean indicating if we are training or 
                 testing the model.
 
         Returns:
@@ -171,24 +196,22 @@ class Regressor:
               size (batch_size, input_size). The input_size does not have to be the same as the input_size for x above.
             - {torch.tensor} or {numpy.ndarray} -- Preprocessed target array of
               size (batch_size, 1).
+            
+        """
 
-        """ ### STANDARDSCALER, ADAM OPTIMIZER,
         #######################################################################
         #                       ** START OF YOUR CODE **
         #######################################################################
+
         # Replace this code with your own
-        # Make copies to avoid changing original data
-        x = x.copy()
+        X = x.copy()
         if y is not None:
-            y = y.copy()
-
-        # Delete rows where target value is NaN, must be done before processing X
-        if y is not None:
-            target_present_mask = y.iloc[:, 0].notna()
-            x = x[target_present_mask]
-            y = y[target_present_mask]
-
-        # Fit preprocessor only during training
+            Y = y.copy()
+            non_nan_indices = Y.iloc[:, 0].notna() # Sanity check: Drop rows with NaN target values
+            X = X[non_nan_indices]
+            Y = Y[non_nan_indices]
+        
+        # Fit preprocesser during training mode
         if training:
             numeric_features = ["longitude", "latitude", "housing_median_age", "total_rooms", "total_bedrooms",
                                 "population", "households", "median_income"]
@@ -209,26 +232,37 @@ class Regressor:
             self.preprocessor.fit(x)
 
         # Apply transformations
-        x = self.preprocessor.transform(x)
-        x = torch.tensor(x, dtype=torch.float32)
+        X = self.preprocessor.transform(X)
+        X = torch.tensor(X, dtype=torch.float32)
         if y is not None:
-            y = torch.tensor(y.values, dtype=torch.float32)
+            Y = torch.tensor(Y.values, dtype=torch.float32)
 
-        return x, y
+        # Return preprocessed x and y, return None for y if it was None
+        return X, (Y if y is not None else None)
 
         #######################################################################
         #                       ** END OF YOUR CODE **
         #######################################################################
 
-
-    def fit(self, x_train, y_train, x_val=None, y_val=None, patience=25):
+        
+    def fit(self,
+            x_train,
+            y_train,
+            x_val=None,
+            y_val=None,
+            patience=25,
+            ):
         """
         Regressor training function
 
         Arguments:
-            - x {pd.DataFrame} -- Raw input array of shape
+            - x_train {pd.DataFrame} -- Raw input training array of shape 
                 (batch_size, input_size).
-            - y {pd.DataFrame} -- Raw output array of shape (batch_size, 1).
+            - y_train {pd.DataFrame} -- Raw output training array of shape (batch_size, 1).
+            - x_val {pd.DataFrame} -- Raw input validation array of shape 
+                (batch_size, input_size).
+            - y_val {pd.DataFrame} -- Raw output validation array of shape (batch_size, 1).
+            - patience {int} -- Patience for early stopping.
 
         Returns:
             self {Regressor} -- Trained model.
@@ -238,114 +272,81 @@ class Regressor:
         #######################################################################
         #                       ** START OF YOUR CODE **
         #######################################################################
-        X_train_processed, Y_train_processed = self._preprocessor(x_train, y = y_train, training = True) # Do not forget
 
-        # Load training data in by batches
-        generator = torch.Generator()
-        generator.manual_seed(42)
-        train_data = TensorDataset(X_train_processed, Y_train_processed)
-        train_dataloader = DataLoader(train_data, batch_size=self.batch_size, shuffle=True)
+        X_train, Y_train = self._preprocessor(x=x_train, y=y_train, training=True) # Do not forget
 
-        # Make sure history is empty before a new fit
-        self.train_loss_history = []
-        self.val_loss_history = []
+        # Load training data by batches
+        generator = torch.Generator().manual_seed(42) # Seed for reproducibility
+        train_dataset = TensorDataset(X_train, Y_train)
+        train_loader = DataLoader(train_dataset, batch_size=self.batch_size, shuffle=True, generator=generator)
 
-        # Initialise parameters to implement early stopping if validation loss does not improve after 'patience' epochs
-        best_val_loss = float('inf')
+        # Training and validation tracking
+        self.train_losses = []
+        self.val_losses = []
+
+        # Early stopping parameters
+        best_val_loss = float("inf")
         epochs_no_improve = 0
 
-        self.network.train()
-
-        # Repeat for n_epoch times
-        for n in range(self.nb_epoch):
-            # --- Training Loop ---
+        # Training loop
+        for epoch in range(self.nb_epoch):
             self.network.train()
-
-            # To track loss per epoch
-            train_epoch_loss = 0.0
+            epoch_train_loss = 0.
             num_batches = 0
 
-            for X_batch, Y_batch in train_dataloader:
-                # Move data to same device as model
-                X_batch, Y_batch = X_batch.to(self.device), Y_batch.to(self.device)
+            for X_train_batch, Y_train_batch in train_loader:
+                X_train_batch, Y_train_batch = X_train_batch.to(self.device), Y_train_batch.to(self.device)
 
-                # Forward pass through the network
-                Y_train_prediction = self.network.forward(X_batch)
-                train_loss = self._loss_layer(Y_train_prediction, Y_batch)
-
-                # Zero the gradients before running backward pass
                 self.optimizer.zero_grad()
-
-                # Backward pass and take gradient descent step
+                Y_train_prediction = self.network(X_train_batch)
+                train_loss = self.loss_layer(Y_train_prediction, Y_train_batch)
                 train_loss.backward()
                 self.optimizer.step()
 
-                # Accumulate loss
-                train_epoch_loss += train_loss.item()
+                # Accumulate training loss
+                epoch_train_loss += train_loss.item()
                 num_batches += 1
 
-            # At the end of an epoch, save the average loss
-            avg_epoch_loss = train_epoch_loss / num_batches
-            self.train_loss_history.append(avg_epoch_loss)
+            # Average training loss for the epoch
+            avg_epoch_train_loss = epoch_train_loss / num_batches
+            self.train_losses.append(avg_epoch_train_loss)
 
-            # --- Validation Loop --- (if validation data is provided)
-            epoch_val_loss = float('inf')
+            # Validation step
             if x_val is not None and y_val is not None:
-                # Set model to evaluation mode
                 self.network.eval()
 
-                # Disable gradients for validation
                 with torch.no_grad():
-                    # Preprocess validation data
-                    X_val_processed, Y_val_processed = self._preprocessor(x_val, y_val, training=False)
-
-                    # Move validation data to device
-                    X_val_processed, Y_val_processed = X_val_processed.to(self.device), Y_val_processed.to(self.device)
-
-                    # Get predictions
-                    Y_val_prediction = self.network(X_val_processed)
-
-                    # Calculate loss
-                    val_loss = self._loss_layer(Y_val_prediction, Y_val_processed)
+                    X_val, Y_val = self._preprocessor(x_val, y_val, training=False)
+                    X_val, Y_val = X_val.to(self.device), Y_val.to(self.device)
+                    Y_val_prediction = self.network(X_val)
+                    val_loss = self.loss_layer(Y_val_prediction, Y_val)
                     epoch_val_loss = val_loss.item()
+                    self.val_losses.append(epoch_val_loss)
 
-                    # Save validation loss
-                    self.val_loss_history.append(val_loss.item())
-                    epoch_val_loss_str = f"{val_loss.item():4f}"
+                # Log progress every 100 epochs
+                if (epoch + 1) % 100 == 0 or epoch == 0 or epoch == self.nb_epoch - 1:
+                    logger.info(f"Epoch {epoch + 1}/{self.nb_epoch}, Avg. Train Loss: {avg_epoch_train_loss:.4f}, Val. Loss: {epoch_val_loss:.4f}")
 
-                if (n + 1) % 100 == 0 or n == 0 or n == self.nb_epoch - 1:
-                    logging.info(
-                        f"Epoch {n + 1}/{self.nb_epoch}, Avg. Train Loss: {avg_epoch_loss:.4f}, Val. Loss: {epoch_val_loss_str}")
-
-                # --- Early Stopping Check ---
+                # Early stopping check
                 if self.early_stopping:
                     if epoch_val_loss < best_val_loss:
                         best_val_loss = epoch_val_loss
                         epochs_no_improve = 0
-                        # Save the best model state
+
                         best_model_state = {
-                            "epoch": n,
+                            "epoch": epoch,
                             "model_state_dict": self.network.state_dict(),
                             "optimizer_state_dict": self.optimizer.state_dict(),
-                            "val_loss": epoch_val_loss
+                            "val_loss": epoch_val_loss,
                         }
                     else:
                         epochs_no_improve += 1
 
                     if epochs_no_improve >= patience:
-                        logging.info(f"Early stopping triggered at epoch {n+1}")
-                        # Restore the best model weights
+                        logger.info(f"Early stopping triggered at epoch {epoch+1}")
                         self.network.load_state_dict(best_model_state["model_state_dict"])
                         self.optimizer.load_state_dict(best_model_state["optimizer_state_dict"])
                         break
-                    #
-
-        # If training completed without early stopping, restore best model if available
-        if self.early_stopping and best_model_state is not None and epochs_no_improve < patience:
-            logging.info(f"Training completed!")
-            logging.info(f"Best validation loss: {best_val_loss:.4f}")
-            self.network.load_state_dict(best_model_state["model_state_dict"])
-            self.optimizer.load_state_dict(best_model_state["optimizer_state_dict"])
 
         return self.network
 
@@ -353,13 +354,13 @@ class Regressor:
         #                       ** END OF YOUR CODE **
         #######################################################################
 
-
+            
     def predict(self, x):
         """
         Output the value corresponding to an input x.
 
         Arguments:
-            x {pd.DataFrame} -- Raw input array of shape
+            x {pd.DataFrame} -- Raw input array of shape 
                 (batch_size, input_size).
 
         Returns:
@@ -371,12 +372,12 @@ class Regressor:
         #                       ** START OF YOUR CODE **
         #######################################################################
 
-        X_processed, _ = self._preprocessor(x, training = False) # Do not forget
-        X_processed = X_processed.to(self.device)
+        X, _ = self._preprocessor(x, training = False) # Do not forget
+        X = X.to(self.device)
 
         self.network.eval()
         with torch.no_grad():
-            Y_prediction = self.network.forward(X_processed)
+            Y_prediction = self.network(X)
 
         return Y_prediction.cpu().numpy()
 
@@ -384,62 +385,52 @@ class Regressor:
         #                       ** END OF YOUR CODE **
         #######################################################################
 
-    def score(self, x, y, print_metrics=True):
+    def score(self, x, y, return_metrics=False):
         """
         Function to evaluate the model accuracy on a validation dataset.
 
         Arguments:
-            - x {pd.DataFrame} -- Raw input array of shape
+            - x {pd.DataFrame} -- Raw input array of shape 
                 (batch_size, input_size).
             - y {pd.DataFrame} -- Raw output array of shape (batch_size, 1).
+            - return_metrics {bool} -- If true, return detailed metrics.
 
         Returns:
             {float} -- Quantification of the efficiency of the model.
-
         """
 
         #######################################################################
         #                       ** START OF YOUR CODE **
         #######################################################################
+        Y_prediction = self.predict(x)
+        Y_true = y.values
 
-        # X, Y = self._preprocessor(x, y = y, training = False) # Do not forget
-        y_pred = self.predict(x)
-
-        # Get true values from the original dataframe
-        y_true = y.values
-
-        # Handle NaNs in y_true and in y_pred
-        valid_mask = ~np.isnan(y_true.flatten()) & ~np.isnan(y_pred.flatten())
-
+        # NaN handling in true and predicted values
+        valid_mask = ~np.isnan(Y_true.flatten()) & ~np.isnan(Y_prediction.flatten())
         if not np.any(valid_mask):
-            logging.warning("Warning: No valid data to score. Model may have exploded (all NaN).")
-            return float('inf')  # Return infinite error for bad models
+            logger.warning("Warning: No valid data to score. Model may have exploded (all NaN).")
+            return float("inf")  # Return infinite error for bad models
 
-        # 4. Filter both arrays to only the valid rows
-        y_true_valid = y_true[valid_mask]
-        y_pred_valid = y_pred[valid_mask]
+        # Filter for valid rows only
+        Y_true = Y_true[valid_mask]
+        Y_prediction = Y_prediction[valid_mask] 
 
-        # Calculate relevant indicators
-        rmse = np.sqrt(mean_squared_error(y_true_valid, y_pred_valid))
-        mae = mean_absolute_error(y_true_valid, y_pred_valid)
-        r2 = r2_score(y_true_valid, y_pred_valid)
+        # Calculate metrics
+        rmse = np.sqrt(mean_squared_error(Y_true, Y_prediction))
+        mae = mean_absolute_error(Y_true, Y_prediction)
+        r2 = r2_score(Y_true, Y_prediction)
 
-        # Print metrics
-        if print_metrics:
-            logging.info("--- Regression Model Performance ---")
-            logging.info(f"  Root Mean Squared Error (RMSE): {rmse:.2f}")
-            logging.info(f"  Mean Absolute Error (MAE):    {mae:.2f}")
-            logging.info(f"  R-squared (R²):               {r2:.3f}")
-            logging.info("--------------------------------------")
+        # Log metrics
+        if return_metrics:
+            logger.info(f"=== Regression Model Performance ===")
+            logger.info(f"RMSE: {rmse:.2f}")
+            logger.info(f"MAE: {mae:.2f}")
+            logger.info(f"R2: {r2:.2f}")
+            logger.info(f"===================================")
 
         return float(rmse) # Replace this code with your own
 
-        #######################################################################
-        #                       ** END OF YOUR CODE **
-        #######################################################################
-
-
-    def plot_loss_history(self, save_path=None):
+    def display_loss(self, save_path=None):
         """
         Plots the training and validation loss curves recorded during fit().
 
@@ -447,16 +438,15 @@ class Regressor:
             - save_path {str} -- Filepath to save the plot image.
                                 If None, displays the plot instead.
         """
-        logging.info("Plotting training and validation loss...")
+        logger.info("Plotting training and validation loss...")
         plt.figure(figsize=(10, 6))
 
-        plt.plot(self.train_loss_history, label='Training Loss')
-
+        plt.plot(self.train_loss_history, label="Training Loss")
         # Only plot validation loss if it was actually recorded
         if self.val_loss_history:
-            plt.plot(self.val_loss_history, label='Validation Loss')
+            plt.plot(self.val_loss_history, label="Validation Loss")
 
-        plt.yscale('log')
+        plt.yscale("log")
         plt.title("Training & Validation Loss per Epoch")
         plt.xlabel("Epoch")
         plt.ylabel("Average Loss (MSE)")
@@ -465,139 +455,146 @@ class Regressor:
 
         if save_path:
             plt.savefig(save_path)
-            logging.info(f"Saved loss curve to {save_path}")
+            logger.info(f"Saved loss curve to {save_path}")
         else:
             plt.show()  # Show the plot interactively
 
+        return None
+    
+        #######################################################################
+        #                       ** END OF YOUR CODE **
+        #######################################################################
 
-def save_regressor(trained_model):
-    """
+def save_regressor(trained_model): 
+    """ 
     Utility function to save the trained regressor model in part2_model.pickle.
     """
     # If you alter this, make sure it works in tandem with load_regressor
-    with open('part2_model.pickle', 'wb') as target:
+    with open("part2_model.pickle", "wb") as target:
         pickle.dump(trained_model, target)
-    logging.info("\nSaved model in part2_model.pickle\n")
+    print("\nSaved model in part2_model.pickle\n")
 
-
-def load_regressor():
-    """
+def load_regressor(): 
+    """ 
     Utility function to load the trained regressor model in part2_model.pickle.
     """
     # If you alter this, make sure it works in tandem with save_regressor
-    with open('part2_model.pickle', 'rb') as target:
+    with open("part2_model.pickle", "rb") as target:
         trained_model = pickle.load(target)
-    logging.info("\nLoaded model in part2_model.pickle\n")
+    print("\nLoaded model in part2_model.pickle\n")
     return trained_model
 
+def perform_hyperparameter_search(x, y): 
+    # Ensure to add whatever inputs you deem necessary to this function
+    """
+    Performs a hyper-parameter for fine-tuning the regressor implemented 
+    in the Regressor class.
 
-def perform_hyperparameter_search(x_train_full, y_train_full):
+    Arguments:
+        x {pd.DataFrame} -- Raw input array of shape 
+            (batch_size, input_size).
+        y {pd.DataFrame} -- Raw output array of shape (batch_size, 1).
+
+    Returns:
+        best_params {dict} -- Dictionary of the best hyper-parameters found.
+        results {list} -- List of all hyper-parameter combinations and their scores. 
     """
-    Performs K-Fold cross-validation hyperparameter search.
-    """
+
     #######################################################################
     #                       ** START OF YOUR CODE **
     #######################################################################
 
-    logging.info("\n--- Starting K-Fold Hyperparameter Search ---")
-
-    # --- Define search space ---
+    # Parameter search grid, modify accordingly
     param_grid = {
-        "lr": [0.001, 0.01],
-        "wd" : [0.0, 0.001],
-        "n_layers" : [2, 4, 6],
-        "first_neurons" : [32, 64, 128, 256],
-        "bs" : [32, 64, 128],
-        "arch_type" : ["pyramid", "rectangular"],
-        "activation": ["relu", "sigmoid", "lrelu"]
+        "learning_rate": [0.001, 0.01],
+        "weight_decay" : [0.0, 0.001],
+        "n_hidden_layers" : [2, 4, 6],
+        "n_neurons" : [32, 64, 128, 256],
+        "batch_size" : [32, 64, 128],
+        "architecture" : ["pyramid", "rectangular"],
+        "activation": ["relu", "sigmoid", "leakyrelu"]
     }
 
-    # Generate all possible combinations
+    # Generate all combinations of hyper-parameters
     keys = list(param_grid.keys())
     all_combinations = list(itertools.product(*[param_grid[key] for key in keys]))
 
-    # --- End search space ---
-
-    best_score = float('inf')
+    # Parameter search parameters
+    best_score = float("inf")
     best_params = {}
     results = []  # To store results for analysis
 
-    # --- K-Fold setup ---
-    k_folds = 10  # Increase this for proper training later on
+    k_folds = 10
     kfold = KFold(n_splits=k_folds, shuffle=True, random_state=42)
 
-    # Simple grid search
+    # Paramter grid search
+    logger.info(f"Starting {k_folds}-Fold Hyperparameter search: {len(all_combinations)} Combinations")
+    logger.info(f"Total Runs: {len(all_combinations) * k_folds}")
+
     for idx, combination in enumerate(all_combinations):
         params = dict(zip(keys, combination))
-
         fold_scores = []
-        # --- K-Fold Loop ---
-        for fold, (train_ids, val_ids) in enumerate(kfold.split(x_train_full)):
-            logging.info(f"  --- Fold {fold + 1}/{k_folds} ---")
-            # Get data for this fold
-            x_train_fold, y_train_fold = x_train_full.iloc[train_ids], y_train_full.iloc[train_ids]
-            x_val_fold, y_val_fold = x_train_full.iloc[val_ids], y_train_full.iloc[val_ids]
+        logger.info(f"=== Testing Combination {idx + 1}/{len(all_combinations)}: {params} ===")
 
-            # Create a NEW regressor for each fold
-            regressor = Regressor(
-                x_train_fold,
-                learning_rate=params["lr"],
-                weight_decay=params["wd"],
-                n_hidden_layers=params["n_layers"],
-                first_layer_neurons=params["first_neurons"],
-                nb_epoch=500,  # Epoch cap for search
-                device=set_device(),
-                batch_size=params["bs"],
-                architecture_type=params["arch_type"],
-                activation=params["activation"],
-                training=True
-            )
+        for fold, (train_ids, val_ids) in enumerate(kfold.split(x)):
+            logger.info(f"=== Fold {fold + 1}/{k_folds} ===")
+            
+            # Split data into training and validation sets
+            x_train_fold, y_train_fold = x.iloc[train_ids], y.iloc[train_ids]
+            x_val_fold, y_val_fold = x.iloc[val_ids], y.iloc[val_ids]
 
-            regressor.fit(x_train_fold, y_train_fold, x_val_fold, y_val_fold, patience=15)
-            score = regressor.score(x_val_fold, y_val_fold, print_metrics=False)
+            # Initialize and train model with current hyper-parameters
+            model = Regressor(x_train_fold,
+                              nb_epoch=500,
+                              learning_rate=params["learning_rate"],
+                              weight_decay=params["weight_decay"],
+                              batch_size=params["batch_size"],
+                              n_neurons=params["n_neurons"],
+                              n_hidden_layers=params["n_hidden_layers"],
+                              architecture=params["architecture"],
+                              activation=params["activation"],
+                              training=True,
+                              early_stopping=True,
+                              )
+            model.fit(x_train_fold, y_train_fold, x_val_fold, y_val_fold, patience=15)
+            score = model.score(x_val_fold, y_val_fold, return_metrics=False)
             fold_scores.append(score)
 
-        # --- End K-Fold Loop ---
+        # Average score across folds
         avg_score = np.mean(fold_scores)
-        logging.info(f"--- Avg. K-Fold RMSE: {avg_score:.2f} ---")
-
-        params['score'] = avg_score
+        params["score"] = avg_score
         results.append((params, avg_score))
+        logger.info(f"=== Average RMSE: {avg_score:.2f} ===")
 
+        # Track best parameters
         if avg_score < best_score:
             best_score = avg_score
             best_params = params
+            logger.info(f"=== New Best Hyperarameters: {best_params} ===")
+            logger.info(f"=== New Best RMSE: {best_score:.2f} ===")
 
-    # Sort results by average validation loss
-    results.sort(key=lambda x: x[1])
+    # Return best and top N hyperparameter combinations
+    N = 10
+    results.sort(key=lambda x: x[1])  # Sort by RMSE
 
-    logging.info("\n--- Hyperparameter Search Complete ---")
-    logging.info(f"Best K-Fold Validation RMSE: {best_score:.2f}")
-    logging.info(f"Best Hyperparameters: {best_params}")
+    logger.info(f"=== Top {N} Hyperparameter Combinations ===")
+    for idx, result in enumerate(results[:N]):
+        param = result[0]
+        logger.info(f"{idx + 1}. Avg Val Loss: {result[1]:.2f}")
+        logger.info(f"|Rank {idx + 1}| LR: {param["learning_rate"]}, WD: {param["weight_decay"]}, Layers: {param["n_hidden_layers"]}, Neurons: {param["n_neurons"]}, Batch Size: {param["batch_size"]}, Arch: {param["architecture"]}, Act: {param["activation"]}")
 
-    logging.info(f"\nTop 10 Parameter Combinations:")
-    logging.info("-" * 70)
-    for i, result in enumerate(results[:10]):
-        p = result[0]
-        logging.info(f"{i + 1}. Avg Val Loss: {result[1]:.4f}")
-        logging.info(f"   LR={p['lr']:.4f}, WD={p['wd']:.4f}, Batch={p['bs']}, "
-                     f"Layers={p['n_layers']}, Size={p['first_neurons']}, "
-                     f"Act={p['activation']}")
-    logging.info("=" * 70 + "\n")
+    return best_params, result # Return the chosen hyper parameters
 
-    # Return best params AND the full results for analysis
-    return best_params, results
     #######################################################################
     #                       ** END OF YOUR CODE **
     #######################################################################
-
 
 def analyze_hp_search(results):
     """
     Analyzes and plots the results of the hyperparameter search.
     """
     if not results:
-        logging.info("No results to analyze.")
+        logger.info("No results to analyze.")
         return
 
     result_list = []
@@ -607,30 +604,35 @@ def analyze_hp_search(results):
     # Convert results list to a DataFrame for easy analysis
     results_df = pd.DataFrame(result_list)
 
-    # Get all hyperparameter columns (exclude 'score')
-    hp_cols = list(set(results_df.columns) - {'score'})
+    # Get all hyperparameter columns (exclude "score")
+    hp_cols = list(set(results_df.columns) - {"score"})
 
-    logging.info("\n--- Hyperparameter Performance Analysis (Average RMSE) ---")
+    logger.info(f"\n=== Hyperparameter Performance Analysis (Average RMSE) ===")
 
     for hp in hp_cols:
         # Group by the hyperparameter and get the mean score
-        hp_performance = results_df.groupby(hp)['score'].mean().sort_values()
+        hp_performance = results_df.groupby(hp)["score"].mean().sort_values()
 
-        logging.info(f"\n--- Performance by {hp} ---")
-        logging.info(str(hp_performance))
+        logger.info(f"\n--- Performance by {hp} ---")
+        logger.info(str(hp_performance))
 
         # Plot and save
         plt.figure(figsize=(8, 4))
-        hp_performance.plot(kind='bar')
+        hp_performance.plot(kind="bar")
         plt.title(f"Average RMSE by {hp}")
         plt.ylabel("Average RMSE")
         plt.xticks(rotation=45)
         plt.tight_layout()
         plt.savefig(f"hp_analysis_{hp}.png")
-        logging.info(f"Saved plot to hp_analysis_{hp}.png")
+        logger.info(f"Saved plot to hp_analysis_{hp}.png")
 
+    return None
 
-def train_val_test_split(x, y, test_size=0.2, val_size=0.2, random_state=42, stratify=False):
+def train_val_test_split(x,
+                         y,
+                         val_size=0.2,
+                         test_size=0.2,
+                         random_state=None):
     """
     Splits data into train, validation, and test sets.
 
@@ -638,68 +640,73 @@ def train_val_test_split(x, y, test_size=0.2, val_size=0.2, random_state=42, str
     the final train and validation sets.
 
     Arguments:
-        x (pd.DataFrame): Input features
-        y (pd.Series): Target values
-        test_size (float, optional): Proportion of dataset to include in the test split. Defaults to 0.2.
-        val_size (float, optional): Proportion of the (train+val) dataset to include in the val split. Defaults to 0.2.
-        random_state (int, optional): Controls shuffling for reproducible results.
-        stratify (bool, option): If True, data is split in a stratified fashion using y. Defaults to False.
-
+        - x {pd.DataFrame} -- Input features
+        - y {pd.DataFrame} -- Target values
+        - val_size {float} -- Proportion of the (train+val) dataset to include in the val split
+        - test_size {float} -- Proportion of dataset to include in the test split. Defaults to 0.2
+        - random_state {int} -- Random seed for reproducibility.
     Returns:
-        tuple: (X_train, X_val, X_test, y_train, y_val, y_test)
+        - {tuple} -- (X_train, X_val, X_test, y_train, y_val, y_test)
     """
 
-    # Determine if stratification is needed
-    stratify_array_1 = y if stratify else None
-
-    # Split into (Train + Val) and Test split
-    x_train_full, x_test, y_train_full, y_test = train_test_split(
-        x, y,
-        test_size=test_size,
-        random_state=random_state,
-        stratify=stratify_array_1
-    )
-
-    # Determine stratification for the second split
-    stratify_array_2 = y_train_full if stratify else None
-
-    # Split (Train + Val) into Train and Val
-    x_train, x_val, y_train, y_val = train_test_split(
-        x_train_full, y_train_full,
-        test_size=val_size,
-        random_state=random_state,
-        stratify=stratify_array_2
-    )
-
+    # Split intro train and test split first
+    x_train_full, x_test, y_train_full, y_test = train_test_split(x,
+                                                                  y,
+                                                                  test_size=test_size,
+                                                                  random_state=random_state,
+                                                                  shuffle=True)
+    
+    # Further split train into train and val
+    val_relative_size = val_size / (1 - test_size)  # Adjust val size
+    x_train, x_val, y_train, y_val = train_test_split(x_train_full,
+                                                      y_train_full,
+                                                      test_size=val_relative_size,
+                                                      random_state=random_state,
+                                                      shuffle=True)
+    
+    # Return train, val, test splits (plus train-val full set for KFold param search)
     return x_train_full, x_train, x_val, x_test, y_train_full, y_train, y_val, y_test
 
+def plot_hyperparameter_trends(hp_name, hp_values, train_losses, val_losses, save_path=None):
+    """
+    Plots training and validation loss trends for different hyperparameter values.
 
-def set_device():
-    # 1. Check for NVIDIA GPU
-    if torch.cuda.is_available():
-        device = torch.device("cuda")
-        logging.info("Using NVIDIA GPU (CUDA)")
-
-    # 2. Check for Apple Silicon GPU (local M1/M2/M3 Macs)
-    elif torch.backends.mps.is_available():
-        device = torch.device("mps")
-        logging.info("Using Apple Silicon GPU (MPS)")
-
-    # 3. Fallback to CPU
+    Arguments:
+        - hp_name {str} -- Name of the hyperparameter.
+        - hp_values {list} -- List of hyperparameter values.
+        - train_losses {list[list]} -- List of training losses corresponding to each hyperparameter value [[epoch_losses_hp1], [epoch_losses_hp2], ...]
+        - val_losses {list[list]} -- List of validation losses corresponding to each hyperparameter value [[epoch_losses_hp1], [epoch_losses_hp2], ...]
+        - save_path {str} -- Filepath to save the plot image. If None, displays the plot instead.
+    """
+    logger.info(f"Plotting hyperparameter trends for {hp_name}...")
+    plt.figure(figsize=(10, 6))
+    
+    # Plot a separate curve for each hyperparameter value
+    for i, hp_val in enumerate(hp_values):
+        epochs = range(1, len(train_losses[i]) + 1)
+        plt.plot(epochs, train_losses[i], label=f"{hp_name}={hp_val} (Train)")
+        if val_losses[i] is not None:
+            plt.plot(epochs, val_losses[i], label=f"{hp_name}={hp_val} (Val)", linestyle='--')
+    
+    plt.yscale("log")
+    plt.title(f"Training Curves for Different {hp_name}")
+    plt.xlabel("Epoch")
+    plt.ylabel("Loss (MSE)")
+    plt.legend()
+    plt.grid(True)
+    
+    if save_path:
+        plt.savefig(save_path)
+        logger.info(f"Saved hyperparameter trend plot to {save_path}")
     else:
-        device = torch.device("cpu")
-        logging.info("No GPU available, using CPU")
+        plt.show()
 
-    return device
-
+    return None
 
 def set_seed(seed):
     """
-    Sets the random seed for Python, NumPy, and PyTorch for reproducibility.
+    Sets the random seed for NumPy and PyTorch for reproducibility.
     """
-    # Set Python's built-in random seed
-    random.seed(seed)
-
     # Set NumPy's random seed
     np.random.seed(seed)
 
@@ -711,60 +718,100 @@ def set_seed(seed):
         torch.cuda.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)  # For multi-GPU setups
 
+    return None
 
 def example_main():
-
-    set_seed(42)
     output_label = "median_house_value"
 
     # Use pandas to read CSV data as it contains various object types
     # Feel free to use another CSV reader tool
     # But remember that LabTS tests take Pandas DataFrame as inputs
-    data = pd.read_csv("housing.csv")
+    data = pd.read_csv("housing.csv") 
 
     # Splitting input and output
+    x_train = data.loc[:, data.columns != output_label]
+    y_train = data.loc[:, [output_label]]
+
+    # Training
+    # This example trains on the whole available dataset. 
+    # You probably want to separate some held-out data 
+    # to make sure the model isn't overfitting
+    regressor = Regressor(x_train, nb_epoch = 10)
+    regressor.fit(x_train, y_train)
+    save_regressor(regressor)
+
+    # Error
+    error = regressor.score(x_train, y_train)
+    print(f"\nRegressor error: {error}\n")
+
+def main():
+    # Set random seed for reproducibility
+    set_seed(42)
+
+    # Example main function to demonstrate usage
+    output_label = "median_house_value"
+
+    # Load dataset
+    data = pd.read_csv("housing.csv") 
+
+    # Split input and output
     x = data.loc[:, data.columns != output_label]
     y = data.loc[:, [output_label]]
 
-    # Splitting into train, validation and test dataset
-    x_train_full, x_train, x_val, x_test, y_train_full, y_train, y_val, y_test = train_val_test_split(
-        x, y, test_size=0.2, val_size=0.2, random_state=42, stratify=False
-    )
+    # Split into train, val, test sets
+    x_train_full, x_train, x_val, x_test, y_train_full, y_train, y_val, y_test = train_val_test_split(x, y, random_state=42)
 
-    # Perform hyperparameter search to look for the best parameters
-    best_params, all_results = perform_hyperparameter_search(x_train_full, y_train_full)
+    # Perform hyperparameter search
+    best_params, results = perform_hyperparameter_search(x_train_full, y_train_full)
 
-    # Plot results
-    analyze_hp_search(all_results)
+    # Analyze hyperparameter search results
+    analyze_hp_search(results)
 
-    # Build regressor model with best parameters from hyperparameter search
-    regressor = Regressor(x_train,
-                          learning_rate=best_params['lr'],
-                          weight_decay=best_params['wd'],
-                          n_hidden_layers=best_params['n_layers'],
-                          first_layer_neurons=best_params['first_neurons'],
-                          batch_size=best_params['bs'],
-                          architecture_type=best_params['arch_type'],
-                          nb_epoch=5000,
-                          activation=best_params['activation'],
-                          device=set_device(),
-                          training=True
-    )
+    # Train final model with best hyperparameters
+    final_model = Regressor(x_train,
+                            nb_epoch=1000,
+                            learning_rate=best_params["learning_rate"],
+                            weight_decay=best_params["weight_decay"],
+                            batch_size=best_params["batch_size"],
+                            n_neurons=best_params["n_neurons"],
+                            n_hidden_layers=best_params["n_hidden_layers"],
+                            architecture=best_params["architecture"],
+                            activation=best_params["activation"],
+                            training=True,
+                            early_stopping=True,
+                            )
+    final_model.fit(x_train, y_train, x_val, y_val, patience=25)
 
-    # Train the model
-    regressor.fit(x_train, y_train, x_val, y_val, patience=25)
-    save_regressor(regressor)
+    # Evaluate on test set
+    test_error = final_model.score(x_test, y_test, return_metrics=True)
+    logger.info(f"\nFinal model test RMSE: {test_error}\n")
 
-    # Print train/loss error
-    regressor.plot_loss_history(save_path="training_validation_loss_curve.png")
+    # Save final model
+    save_regressor(final_model)
+    logger.info("Final model saved successfully.")
 
-    # Error
-    error = regressor.score(x_test, y_test)
-    logging.info(f"\nRegressor error: {error}\n")
+    # # Plot hyperparameter trends (example for learning rate) - can modify as needed
+    # # Retrain with different learning rates and get list of epoch losses
+    # # Plot epoch losses vs learning rates
+    # hp_name = "learning_rate"
+    # hp_values = [0.001, 0.01]
+    # train_losses = []
+    # val_losses = []
 
+    # logger.info(f"Retraining models with different {hp_name} values to plot trends...")
+    # for lr in hp_values:
+    #     logger.info(f"Training model with {hp_name}={lr}...")
+    #     model = Regressor(x_train,
+    #                       nb_epoch=50,
+    #                       learning_rate=lr,
+    #                       training=True,
+    #                       )
+    #     model.fit(x_train, y_train, x_val, y_val)
+    #     train_losses.append(model.train_losses)
+    #     val_losses.append(model.val_losses if model.val_losses else None)
+
+    # save_path = f"hp_trends_{hp_name}.png"
+    # plot_hyperparameter_trends(hp_name, hp_values, train_losses, val_losses, save_path=save_path)
 
 if __name__ == "__main__":
-    example_main()
-
-
-
+    main()
