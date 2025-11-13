@@ -1,4 +1,6 @@
 from email import generator
+import logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 import torch
 import torch.nn as nn
 import pickle
@@ -20,8 +22,6 @@ import random
 
 
 class NeuralNet(nn.Module):
-
-    # --- MODIFIED ---
     def __init__(self, input_size, n_hidden_layers, neurons, arch_type="pyramid", activation='relu'):
         """
         Initialises a flexible network.
@@ -58,7 +58,7 @@ class NeuralNet(nn.Module):
 
         layer_sizes.append(1)  # Final output layer
 
-        print(f"Building network with architecture: {layer_sizes}")
+        logging.info(f"Building network with architecture: {layer_sizes}")
 
         layers = []
         for i in range(len(layer_sizes) - 1):
@@ -121,7 +121,7 @@ class Regressor:
 
         if device is None:
             self.device = torch.device("cpu")
-            print("Warning: No device specified, using CPU.")
+            logging.warning("No device specified, using CPU.")
         else:
             self.device = device
 
@@ -314,7 +314,7 @@ class Regressor:
                     epoch_val_loss_str = f"{val_loss.item():4f}"
 
                 if (n + 1) % 100 == 0 or n == 0 or n == self.nb_epoch - 1:
-                    print(
+                    logging.info(
                         f"Epoch {n + 1}/{self.nb_epoch}, Avg. Train Loss: {avg_epoch_loss:.4f}, Val. Loss: {epoch_val_loss_str}")
 
                 # --- Early Stopping Check ---
@@ -333,7 +333,7 @@ class Regressor:
                         epochs_no_improve += 1
 
                     if epochs_no_improve >= patience:
-                        print(f"Early stopping triggered at epoch {n+1}")
+                        logging.info(f"Early stopping triggered at epoch {n+1}")
                         # Restore the best model weights
                         self.network.load_state_dict(best_model_state["model_state_dict"])
                         self.optimizer.load_state_dict(best_model_state["optimizer_state_dict"])
@@ -342,8 +342,8 @@ class Regressor:
 
         # If training completed without early stopping, restore best model if available
         if self.early_stopping and best_model_state is not None and epochs_no_improve < patience:
-            print(f"Training completed!")
-            print(f"Best validation loss: {best_val_loss:.4f}")
+            logging.info(f"Training completed!")
+            logging.info(f"Best validation loss: {best_val_loss:.4f}")
             self.network.load_state_dict(best_model_state["model_state_dict"])
             self.optimizer.load_state_dict(best_model_state["optimizer_state_dict"])
 
@@ -412,7 +412,7 @@ class Regressor:
         valid_mask = ~np.isnan(y_true.flatten()) & ~np.isnan(y_pred.flatten())
 
         if not np.any(valid_mask):
-            print("Warning: No valid data to score. Model may have exploded (all NaN).")
+            logging.warning("Warning: No valid data to score. Model may have exploded (all NaN).")
             return float('inf')  # Return infinite error for bad models
 
         # 4. Filter both arrays to only the valid rows
@@ -426,11 +426,11 @@ class Regressor:
 
         # Print metrics
         if print_metrics:
-            print("--- Regression Model Performance ---")
-            print(f"  Root Mean Squared Error (RMSE): {rmse:.2f}")
-            print(f"  Mean Absolute Error (MAE):    {mae:.2f}")
-            print(f"  R-squared (R²):               {r2:.3f}")
-            print("--------------------------------------")
+            logging.info("--- Regression Model Performance ---")
+            logging.info(f"  Root Mean Squared Error (RMSE): {rmse:.2f}")
+            logging.info(f"  Mean Absolute Error (MAE):    {mae:.2f}")
+            logging.info(f"  R-squared (R²):               {r2:.3f}")
+            logging.info("--------------------------------------")
 
         return float(rmse) # Replace this code with your own
 
@@ -447,7 +447,7 @@ class Regressor:
             - save_path {str} -- Filepath to save the plot image.
                                 If None, displays the plot instead.
         """
-        print("Plotting training and validation loss...")
+        logging.info("Plotting training and validation loss...")
         plt.figure(figsize=(10, 6))
 
         plt.plot(self.train_loss_history, label='Training Loss')
@@ -465,7 +465,7 @@ class Regressor:
 
         if save_path:
             plt.savefig(save_path)
-            print(f"Saved loss curve to {save_path}")
+            logging.info(f"Saved loss curve to {save_path}")
         else:
             plt.show()  # Show the plot interactively
 
@@ -477,7 +477,7 @@ def save_regressor(trained_model):
     # If you alter this, make sure it works in tandem with load_regressor
     with open('part2_model.pickle', 'wb') as target:
         pickle.dump(trained_model, target)
-    print("\nSaved model in part2_model.pickle\n")
+    logging.info("\nSaved model in part2_model.pickle\n")
 
 
 def load_regressor():
@@ -487,7 +487,7 @@ def load_regressor():
     # If you alter this, make sure it works in tandem with save_regressor
     with open('part2_model.pickle', 'rb') as target:
         trained_model = pickle.load(target)
-    print("\nLoaded model in part2_model.pickle\n")
+    logging.info("\nLoaded model in part2_model.pickle\n")
     return trained_model
 
 
@@ -499,7 +499,7 @@ def perform_hyperparameter_search(x_train_full, y_train_full):
     #                       ** START OF YOUR CODE **
     #######################################################################
 
-    print("\n--- Starting K-Fold Hyperparameter Search ---")
+    logging.info("\n--- Starting K-Fold Hyperparameter Search ---")
 
     # --- Define search space ---
     param_grid = {
@@ -533,7 +533,7 @@ def perform_hyperparameter_search(x_train_full, y_train_full):
         fold_scores = []
         # --- K-Fold Loop ---
         for fold, (train_ids, val_ids) in enumerate(kfold.split(x_train_full)):
-            print(f"  --- Fold {fold + 1}/{k_folds} ---")
+            logging.info(f"  --- Fold {fold + 1}/{k_folds} ---")
             # Get data for this fold
             x_train_fold, y_train_fold = x_train_full.iloc[train_ids], y_train_full.iloc[train_ids]
             x_val_fold, y_val_fold = x_train_full.iloc[val_ids], y_train_full.iloc[val_ids]
@@ -558,7 +558,7 @@ def perform_hyperparameter_search(x_train_full, y_train_full):
 
         # --- End K-Fold Loop ---
         avg_score = np.mean(fold_scores)
-        print(f"--- Avg. K-Fold RMSE: {avg_score:.2f} ---")
+        logging.info(f"--- Avg. K-Fold RMSE: {avg_score:.2f} ---")
 
         params['score'] = avg_score
         results.append((params, avg_score))
@@ -570,19 +570,19 @@ def perform_hyperparameter_search(x_train_full, y_train_full):
     # Sort results by average validation loss
     results.sort(key=lambda x: x[1])
 
-    print("\n--- Hyperparameter Search Complete ---")
-    print(f"Best K-Fold Validation RMSE: {best_score:.2f}")
-    print(f"Best Hyperparameters: {best_params}")
+    logging.info("\n--- Hyperparameter Search Complete ---")
+    logging.info(f"Best K-Fold Validation RMSE: {best_score:.2f}")
+    logging.info(f"Best Hyperparameters: {best_params}")
 
-    print(f"\nTop 10 Parameter Combinations:")
-    print("-" * 70)
+    logging.info(f"\nTop 10 Parameter Combinations:")
+    logging.info("-" * 70)
     for i, result in enumerate(results[:10]):
         p = result[0]
-        print(f"{i + 1}. Avg Val Loss: {result[1]:.4f}")
-        print(f"   LR={p['lr']:.4f}, WD={p['wd']:.4f}, Batch={p['bs']}, "
-              f"Layers={p['n_layers']}, Size={p['first_neurons']}, "
-              f"Act={p['activation']}")
-    print("=" * 70 + "\n")
+        logging.info(f"{i + 1}. Avg Val Loss: {result[1]:.4f}")
+        logging.info(f"   LR={p['lr']:.4f}, WD={p['wd']:.4f}, Batch={p['bs']}, "
+                     f"Layers={p['n_layers']}, Size={p['first_neurons']}, "
+                     f"Act={p['activation']}")
+    logging.info("=" * 70 + "\n")
 
     # Return best params AND the full results for analysis
     return best_params, results
@@ -596,7 +596,7 @@ def analyze_hp_search(results):
     Analyzes and plots the results of the hyperparameter search.
     """
     if not results:
-        print("No results to analyze.")
+        logging.info("No results to analyze.")
         return
 
     result_list = []
@@ -609,14 +609,14 @@ def analyze_hp_search(results):
     # Get all hyperparameter columns (exclude 'score')
     hp_cols = list(set(results_df.columns) - {'score'})
 
-    print("\n--- Hyperparameter Performance Analysis (Average RMSE) ---")
+    logging.info("\n--- Hyperparameter Performance Analysis (Average RMSE) ---")
 
     for hp in hp_cols:
         # Group by the hyperparameter and get the mean score
         hp_performance = results_df.groupby(hp)['score'].mean().sort_values()
 
-        print(f"\n--- Performance by {hp} ---")
-        print(hp_performance)
+        logging.info(f"\n--- Performance by {hp} ---")
+        logging.info(str(hp_performance))
 
         # Plot and save
         plt.figure(figsize=(8, 4))
@@ -626,7 +626,7 @@ def analyze_hp_search(results):
         plt.xticks(rotation=45)
         plt.tight_layout()
         plt.savefig(f"hp_analysis_{hp}.png")
-        print(f"Saved plot to hp_analysis_{hp}.png")
+        logging.info(f"Saved plot to hp_analysis_{hp}.png")
 
     # # --- Heatmap for 2 most important parameters (e.g., lr vs. n_layers) ---
     # print("\n--- Generating Heatmap (lr vs. first_neurons) ---")
@@ -694,17 +694,17 @@ def set_device():
     # 1. Check for NVIDIA GPU
     if torch.cuda.is_available():
         device = torch.device("cuda")
-        print("Using NVIDIA GPU (CUDA)")
+        logging.info("Using NVIDIA GPU (CUDA)")
 
     # 2. Check for Apple Silicon GPU (local M1/M2/M3 Macs)
     elif torch.backends.mps.is_available():
         device = torch.device("mps")
-        print("Using Apple Silicon GPU (MPS)")
+        logging.info("Using Apple Silicon GPU (MPS)")
 
     # 3. Fallback to CPU
     else:
         device = torch.device("cpu")
-        print("No GPU available, using CPU")
+        logging.info("No GPU available, using CPU")
 
     return device
 
@@ -780,7 +780,7 @@ def example_main():
 
     # Error
     error = regressor.score(x_test, y_test)
-    print(f"\nRegressor error: {error}\n")
+    logging.info(f"\nRegressor error: {error}\n")
 
 
 if __name__ == "__main__":
