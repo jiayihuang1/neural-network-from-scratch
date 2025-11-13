@@ -549,6 +549,7 @@ def perform_hyperparameter_search(x_train_full, y_train_full):
                 device=set_device(),
                 batch_size=params["bs"],
                 architecture_type=params["arch_type"],
+                activation=params["activation"],
                 training=True
             )
 
@@ -627,23 +628,6 @@ def analyze_hp_search(results):
         plt.tight_layout()
         plt.savefig(f"hp_analysis_{hp}.png")
         logging.info(f"Saved plot to hp_analysis_{hp}.png")
-
-    # # --- Heatmap for 2 most important parameters (e.g., lr vs. n_layers) ---
-    # print("\n--- Generating Heatmap (lr vs. first_neurons) ---")
-    # try:
-    #     heatmap_data = results_df.pivot_table(
-    #         index='lr',
-    #         columns='first_neurons',
-    #         values='score'
-    #     )
-    #     plt.figure(figsize=(10, 7))
-    #     sns.heatmap(heatmap_data, annot=True, fmt=".2f", cmap="viridis_r")
-    #     plt.title("Heatmap of Avg. RMSE (lr vs. first_neurons)")
-    #     plt.savefig("hp_heatmap_lr_vs_neurons.png")
-    #     print("Saved heatmap to hp_heatmap_lr_vs_neurons.png")
-    # except Exception as e:
-    #     print(f"Could not generate heatmap: {e}")
-
 
 
 def train_val_test_split(x, y, test_size=0.2, val_size=0.2, random_state=42, stratify=False):
@@ -747,11 +731,6 @@ def example_main():
         x, y, test_size=0.2, val_size=0.2, random_state=42, stratify=False
     )
 
-    # Training
-    # This example trains on the whole available dataset.
-    # You probably want to separate some held-out data
-    # to make sure the model isn't overfitting
-
     # Perform hyperparameter search to look for the best parameters
     best_params, all_results = perform_hyperparameter_search(x_train_full, y_train_full)
 
@@ -767,6 +746,7 @@ def example_main():
                           batch_size=best_params['bs'],
                           architecture_type=best_params['arch_type'],
                           nb_epoch=5000,
+                          activation=best_params['activation'],
                           device=set_device(),
                           training=True
     )
