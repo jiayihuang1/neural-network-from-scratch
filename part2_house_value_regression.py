@@ -692,12 +692,12 @@ def main():
     # best_params, results = perform_hyperparameter_search(x_train_full, y_train_full)
 
     best_params = {
-        "learning_rate": 0.001,
+        "learning_rate": 0.01,
         "weight_decay": 0.0,
         "n_hidden_layers": 4,
-        "n_neurons": 128,
-        "batch_size": 64,
-        "architecture": "pyramid",
+        "n_neurons": 256,
+        "batch_size": 32,
+        "architecture": "rectangular",
         "activation": "relu"
     }
 
@@ -725,8 +725,8 @@ def main():
     logger.info("Final model saved successfully.")
 
     # Plot predictions and loss curves
-    final_model.plot_predictions(x_test, y_test, save_path="predictions_plot.png")
-    final_model.display_loss(save_path="loss_curve.png")
+    # final_model.plot_predictions(x_test, y_test, save_path="predictions_plot.png")
+    # final_model.display_loss(save_path="loss_curve.png")
 
 if __name__ == "__main__":
     main()

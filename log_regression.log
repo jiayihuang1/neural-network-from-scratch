@@ -1,0 +1,66 @@
+2025-11-18 16:21:21 - __main__ - INFO - Using device: cuda
+2025-11-18 16:21:21 - __main__ - INFO - NeuralNet initialized with architecture [256, 256, 256, 256, 256, 1]
+2025-11-18 16:21:21 - __main__ - INFO - Activation function: relu
+2025-11-18 16:21:24 - __main__ - INFO - Epoch 1/1000, Avg. Train Loss: 7662168427.3548, Val. Loss: 4115494656.0000
+2025-11-18 16:21:57 - __main__ - INFO - Early stopping triggered at epoch 68
+2025-11-18 16:21:57 - __main__ - INFO - === Regression Model Performance ===
+2025-11-18 16:21:57 - __main__ - INFO - RMSE: 54426.47
+2025-11-18 16:21:57 - __main__ - INFO - MAE: 35645.39
+2025-11-18 16:21:57 - __main__ - INFO - R2: 0.79
+2025-11-18 16:21:57 - __main__ - INFO - ===================================
+2025-11-18 16:21:57 - __main__ - INFO - 
+Final model test RMSE: 54426.470661276435
+
+2025-11-18 16:21:57 - __main__ - INFO - Final model saved successfully.
+2025-11-18 16:21:57 - __main__ - INFO - Plotting predictions vs actuals...
+2025-11-18 16:21:57 - __main__ - INFO - Saved prediction plot to predictions_plot.png
+2025-11-18 16:30:41 - __main__ - INFO - Using device: cuda
+2025-11-18 16:30:41 - __main__ - INFO - NeuralNet initialized with architecture [128, 64, 32, 16, 8, 1]
+2025-11-18 16:30:41 - __main__ - INFO - Activation function: relu
+2025-11-18 16:30:43 - __main__ - INFO - Epoch 1/1000, Avg. Train Loss: 56204278565.9871, Val. Loss: 53463085056.0000
+2025-11-18 16:31:10 - __main__ - INFO - Epoch 100/1000, Avg. Train Loss: 3695946647.1226, Val. Loss: 3605805568.0000
+2025-11-18 16:31:37 - __main__ - INFO - Epoch 200/1000, Avg. Train Loss: 3396691764.8516, Val. Loss: 3438615552.0000
+2025-11-18 16:32:04 - __main__ - INFO - Epoch 300/1000, Avg. Train Loss: 3052862112.2065, Val. Loss: 3176383488.0000
+2025-11-18 16:32:31 - __main__ - INFO - Epoch 400/1000, Avg. Train Loss: 2769158262.0903, Val. Loss: 2956870912.0000
+2025-11-18 16:32:57 - __main__ - INFO - Early stopping triggered at epoch 498
+2025-11-18 16:32:57 - __main__ - INFO - === Regression Model Performance ===
+2025-11-18 16:32:57 - __main__ - INFO - RMSE: 54154.77
+2025-11-18 16:32:57 - __main__ - INFO - MAE: 37263.20
+2025-11-18 16:32:57 - __main__ - INFO - R2: 0.79
+2025-11-18 16:32:57 - __main__ - INFO - ===================================
+2025-11-18 16:32:57 - __main__ - INFO - 
+Final model test RMSE: 54154.76772955595
+
+2025-11-18 16:32:57 - __main__ - INFO - Final model saved successfully.
+2025-11-18 16:33:57 - __main__ - INFO - Using device: cuda
+2025-11-18 16:33:57 - __main__ - INFO - NeuralNet initialized with architecture [128, 64, 32, 16, 8, 1]
+2025-11-18 16:33:57 - __main__ - INFO - Activation function: relu
+2025-11-18 16:33:59 - __main__ - INFO - Epoch 1/1000, Avg. Train Loss: 56204278565.9871, Val. Loss: 53463085056.0000
+2025-11-18 16:34:26 - __main__ - INFO - Epoch 100/1000, Avg. Train Loss: 3695946647.1226, Val. Loss: 3605805568.0000
+2025-11-18 16:34:52 - __main__ - INFO - Epoch 200/1000, Avg. Train Loss: 3396691764.8516, Val. Loss: 3438615552.0000
+2025-11-18 16:35:19 - __main__ - INFO - Epoch 300/1000, Avg. Train Loss: 3052862112.2065, Val. Loss: 3176383488.0000
+2025-11-18 16:35:45 - __main__ - INFO - Epoch 400/1000, Avg. Train Loss: 2769158262.0903, Val. Loss: 2956870912.0000
+2025-11-18 16:36:12 - __main__ - INFO - Early stopping triggered at epoch 498
+2025-11-18 16:36:12 - __main__ - INFO - === Regression Model Performance ===
+2025-11-18 16:36:12 - __main__ - INFO - RMSE: 54154.77
+2025-11-18 16:36:12 - __main__ - INFO - MAE: 37263.20
+2025-11-18 16:36:12 - __main__ - INFO - R2: 0.79
+2025-11-18 16:36:12 - __main__ - INFO - ===================================
+2025-11-18 16:36:12 - __main__ - INFO - 
+Final model test RMSE: 54154.76772955595
+
+2025-11-18 16:36:12 - __main__ - INFO - Final model saved successfully.
+2025-11-18 16:37:07 - __main__ - INFO - Using device: cuda
+2025-11-18 16:37:07 - __main__ - INFO - NeuralNet initialized with architecture [256, 256, 256, 256, 256, 1]
+2025-11-18 16:37:07 - __main__ - INFO - Activation function: relu
+2025-11-18 16:37:10 - __main__ - INFO - Epoch 1/1000, Avg. Train Loss: 7662168427.3548, Val. Loss: 4115494656.0000
+2025-11-18 16:37:43 - __main__ - INFO - Early stopping triggered at epoch 68
+2025-11-18 16:37:43 - __main__ - INFO - === Regression Model Performance ===
+2025-11-18 16:37:43 - __main__ - INFO - RMSE: 54426.47
+2025-11-18 16:37:43 - __main__ - INFO - MAE: 35645.39
+2025-11-18 16:37:43 - __main__ - INFO - R2: 0.79
+2025-11-18 16:37:43 - __main__ - INFO - ===================================
+2025-11-18 16:37:43 - __main__ - INFO - 
+Final model test RMSE: 54426.470661276435
+
+2025-11-18 16:37:43 - __main__ - INFO - Final model saved successfully.
