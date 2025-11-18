@@ -625,17 +625,17 @@ def main():
     x_train_full, x_train, x_val, x_test, y_train_full, y_train, y_val, y_test = train_val_test_split(x, y, random_state=42)
 
     # Perform hyperparameter search
-    best_params, results = perform_hyperparameter_search(x_train_full, y_train_full)
+    #best_params, results = perform_hyperparameter_search(x_train_full, y_train_full)
 
-    # best_params = {
-    #     "learning_rate": 0.01,
-    #     "weight_decay": 0.0,
-    #     "n_hidden_layers": 4,
-    #     "n_neurons": 256,
-    #     "batch_size": 32,
-    #     "architecture": "rectangular",
-    #     "activation": "relu"
-    # }
+    best_params = {
+         "learning_rate": 0.01,
+         "weight_decay": 0.0,
+         "n_hidden_layers": 4,
+         "n_neurons": 256,
+         "batch_size": 32,
+         "architecture": "rectangular",
+         "activation": "relu"
+     }
 
     # Train final model with best hyperparameters
     final_model = Regressor(x_train,
