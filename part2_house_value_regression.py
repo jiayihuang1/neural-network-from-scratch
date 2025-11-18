@@ -15,8 +15,6 @@ from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 from sklearn.model_selection import train_test_split, KFold
 from torch.utils.data import TensorDataset, DataLoader
 
-print("Libraries successfully imported")
-
 # Create a custom logger
 custom_log_name = sys.argv[1] if len(sys.argv) > 1 else "regression"
 log_filename = f"log_{custom_log_name}.log"
@@ -429,38 +427,6 @@ class Regressor:
 
         return float(rmse) # Replace this code with your own
 
-    # def plot_predictions(self, x, y, save_path=None):
-    #     """
-    #     Plots scatter plot of actual vs predicted values.
-
-    #     Arguments:
-    #         - x {pd.DataFrame} -- Input features.
-    #         - y {pd.DataFrame} -- Actual target values.
-    #         - save_path {str} -- Filepath to save the plot.
-    #     """
-    #     logger.info("Plotting predictions vs actuals...")
-    #     Y_pred = self.predict(x).flatten()
-    #     Y_true = y.values.flatten()
-
-    #     plt.figure(figsize=(8, 8))
-    #     plt.scatter(Y_true, Y_pred, alpha=0.3)
-
-    #     # Plot diagonal line for perfect predictions
-    #     min_val = min(np.min(Y_true), np.min(Y_pred))
-    #     max_val = max(np.max(Y_true), np.max(Y_pred))
-    #     plt.plot([min_val, max_val], [min_val, max_val], 'r--')
-
-    #     plt.xlabel("Actual Values")
-    #     plt.ylabel("Predicted Values")
-    #     plt.title("Actual vs. Predicted House Values")
-    #     plt.grid(True)
-
-    #     if save_path:
-    #         plt.savefig(save_path)
-    #         logger.info(f"Saved prediction plot to {save_path}")
-    #     else:
-    #         plt.show()
-
 def save_regressor(trained_model): 
     """ 
     Utility function to save the trained regressor model in part2_model.pickle.
@@ -624,37 +590,6 @@ def train_val_test_split(x,
     # Return train, val, test splits (plus train-val full set for KFold param search)
     return x_train_full, x_train, x_val, x_test, y_train_full, y_train, y_val, y_test
 
-# def display_loss(self, save_path=None):
-#         """
-#         Plots the training and validation loss curves recorded during fit().
-
-#         Arguments:
-#             - save_path {str} -- Filepath to save the plot image.
-#                                 If None, displays the plot instead.
-#         """
-#         logger.info("Plotting training and validation loss...")
-#         plt.figure(figsize=(10, 6))
-
-#         plt.plot(self.train_losses, label="Training Loss")
-#         # Only plot validation loss if it was actually recorded
-#         if self.val_losses:
-#             plt.plot(self.val_losses, label="Validation Loss")
-
-#         plt.yscale("log")
-#         plt.title("Training & Validation Loss per Epoch")
-#         plt.xlabel("Epoch")
-#         plt.ylabel("Average Loss (MSE)")
-#         plt.legend()
-#         plt.grid(True)
-
-#         if save_path:
-#             plt.savefig(save_path)
-#             logger.info(f"Saved loss curve to {save_path}")
-#         else:
-#             plt.show()  # Show the plot interactively
-
-#         return None
-
 def set_seed(seed):
     """
     Sets the random seed for NumPy and PyTorch for reproducibility.
@@ -690,17 +625,17 @@ def main():
     x_train_full, x_train, x_val, x_test, y_train_full, y_train, y_val, y_test = train_val_test_split(x, y, random_state=42)
 
     # Perform hyperparameter search
-    # best_params, results = perform_hyperparameter_search(x_train_full, y_train_full)
+    best_params, results = perform_hyperparameter_search(x_train_full, y_train_full)
 
-    best_params = {
-        "learning_rate": 0.01,
-        "weight_decay": 0.0,
-        "n_hidden_layers": 4,
-        "n_neurons": 256,
-        "batch_size": 32,
-        "architecture": "rectangular",
-        "activation": "relu"
-    }
+    # best_params = {
+    #     "learning_rate": 0.01,
+    #     "weight_decay": 0.0,
+    #     "n_hidden_layers": 4,
+    #     "n_neurons": 256,
+    #     "batch_size": 32,
+    #     "architecture": "rectangular",
+    #     "activation": "relu"
+    # }
 
     # Train final model with best hyperparameters
     final_model = Regressor(x_train,
@@ -724,10 +659,6 @@ def main():
     # Save final model
     save_regressor(final_model)
     logger.info("Final model saved successfully.")
-
-    # Plot predictions and loss curves
-    # final_model.plot_predictions(x_test, y_test, save_path="predictions_plot.png")
-    # final_model.display_loss(save_path="loss_curve.png")
 
 if __name__ == "__main__":
     main()
