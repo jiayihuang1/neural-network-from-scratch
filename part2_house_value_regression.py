@@ -6,6 +6,7 @@ import pandas as pd
 import logging
 import itertools
 import sys
+import matplotlib.pyplot as plt
 
 from sklearn.impute import KNNImputer, SimpleImputer
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
@@ -144,13 +145,9 @@ class Regressor:
         self.architecture = architecture
         self.activation = activation
 
-        # if torch.cuda.is_available():
-        #     self.device = torch.device("cuda")
-        # elif torch.backends.mps.is_available():
-        #     self.device = torch.device("mps")
-        # else:
-        #     self.device = torch.device("cpu")
+        # Run on CPU for compatibility
         self.device = torch.device("cpu")
+
         logger.info(f"Using device: {self.device}")
 
         # Initialize neural network
@@ -428,6 +425,69 @@ class Regressor:
 
         return float(rmse) # Replace this code with your own
 
+    def plot_predictions(self, x, y, save_path=None):
+        """
+        Plots scatter plot of actual vs predicted values.
+
+        Arguments:
+            - x {pd.DataFrame} -- Input features.
+            - y {pd.DataFrame} -- Actual target values.
+            - save_path {str} -- Filepath to save the plot.
+        """
+        logger.info("Plotting predictions vs actuals...")
+        Y_pred = self.predict(x).flatten()
+        Y_true = y.values.flatten()
+
+        plt.figure(figsize=(8, 8))
+        plt.scatter(Y_true, Y_pred, alpha=0.3)
+
+        # Plot diagonal line for perfect predictions
+        min_val = min(np.min(Y_true), np.min(Y_pred))
+        max_val = max(np.max(Y_true), np.max(Y_pred))
+        plt.plot([min_val, max_val], [min_val, max_val], 'r--')
+
+        plt.xlabel("Actual Values")
+        plt.ylabel("Predicted Values")
+        plt.title("Actual vs. Predicted House Values")
+        plt.grid(True)
+
+        if save_path:
+            plt.savefig(save_path)
+            logger.info(f"Saved prediction plot to {save_path}")
+        else:
+            plt.show()
+
+    def display_loss(self, save_path=None):
+            """
+            Plots the training and validation loss curves recorded during fit().
+
+            Arguments:
+                - save_path {str} -- Filepath to save the plot image.
+                                    If None, displays the plot instead.
+            """
+            logger.info("Plotting training and validation loss...")
+            plt.figure(figsize=(10, 6))
+
+            plt.plot(self.train_losses, label="Training Loss")
+            # Only plot validation loss if it was actually recorded
+            if self.val_losses:
+                plt.plot(self.val_losses, label="Validation Loss")
+
+            plt.yscale("log")
+            plt.title("Training & Validation Loss per Epoch")
+            plt.xlabel("Epoch")
+            plt.ylabel("Average Loss (MSE)")
+            plt.legend()
+            plt.grid(True)
+
+            if save_path:
+                plt.savefig(save_path)
+                logger.info(f"Saved loss curve to {save_path}")
+            else:
+                plt.show()  # Show the plot interactively
+
+            return None
+
 def save_regressor(trained_model): 
     """ 
     Utility function to save the trained regressor model in part2_model.pickle.
@@ -601,11 +661,6 @@ def set_seed(seed):
     # Set PyTorch's random seed for CPU
     torch.manual_seed(seed)
 
-    # # Set PyTorch's random seed for GPU (if available)
-    # if torch.cuda.is_available():
-    #     torch.cuda.manual_seed(seed)
-    #     torch.cuda.manual_seed_all(seed)  # For multi-GPU setups
-
     return None
 
 def main():
@@ -660,6 +715,10 @@ def main():
     # Save final model
     save_regressor(final_model)
     logger.info("Final model saved successfully.")
+
+    # Plot training and validation loss curves
+    final_model.display_loss(save_path="loss_curve.png")
+    final_model.plot_predictions(x_test, y_test, save_path="predictions_plot.png")
 
 if __name__ == "__main__":
     main()
