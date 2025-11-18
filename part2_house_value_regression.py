@@ -6,7 +6,7 @@ import pandas as pd
 import logging
 import itertools
 import sys
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
 
 from sklearn.impute import KNNImputer, SimpleImputer
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
@@ -428,37 +428,37 @@ class Regressor:
 
         return float(rmse) # Replace this code with your own
 
-    def plot_predictions(self, x, y, save_path=None):
-        """
-        Plots scatter plot of actual vs predicted values.
+    # def plot_predictions(self, x, y, save_path=None):
+    #     """
+    #     Plots scatter plot of actual vs predicted values.
 
-        Arguments:
-            - x {pd.DataFrame} -- Input features.
-            - y {pd.DataFrame} -- Actual target values.
-            - save_path {str} -- Filepath to save the plot.
-        """
-        logger.info("Plotting predictions vs actuals...")
-        Y_pred = self.predict(x).flatten()
-        Y_true = y.values.flatten()
+    #     Arguments:
+    #         - x {pd.DataFrame} -- Input features.
+    #         - y {pd.DataFrame} -- Actual target values.
+    #         - save_path {str} -- Filepath to save the plot.
+    #     """
+    #     logger.info("Plotting predictions vs actuals...")
+    #     Y_pred = self.predict(x).flatten()
+    #     Y_true = y.values.flatten()
 
-        plt.figure(figsize=(8, 8))
-        plt.scatter(Y_true, Y_pred, alpha=0.3)
+    #     plt.figure(figsize=(8, 8))
+    #     plt.scatter(Y_true, Y_pred, alpha=0.3)
 
-        # Plot diagonal line for perfect predictions
-        min_val = min(np.min(Y_true), np.min(Y_pred))
-        max_val = max(np.max(Y_true), np.max(Y_pred))
-        plt.plot([min_val, max_val], [min_val, max_val], 'r--')
+    #     # Plot diagonal line for perfect predictions
+    #     min_val = min(np.min(Y_true), np.min(Y_pred))
+    #     max_val = max(np.max(Y_true), np.max(Y_pred))
+    #     plt.plot([min_val, max_val], [min_val, max_val], 'r--')
 
-        plt.xlabel("Actual Values")
-        plt.ylabel("Predicted Values")
-        plt.title("Actual vs. Predicted House Values")
-        plt.grid(True)
+    #     plt.xlabel("Actual Values")
+    #     plt.ylabel("Predicted Values")
+    #     plt.title("Actual vs. Predicted House Values")
+    #     plt.grid(True)
 
-        if save_path:
-            plt.savefig(save_path)
-            logger.info(f"Saved prediction plot to {save_path}")
-        else:
-            plt.show()
+    #     if save_path:
+    #         plt.savefig(save_path)
+    #         logger.info(f"Saved prediction plot to {save_path}")
+    #     else:
+    #         plt.show()
 
 def save_regressor(trained_model): 
     """ 
@@ -623,36 +623,36 @@ def train_val_test_split(x,
     # Return train, val, test splits (plus train-val full set for KFold param search)
     return x_train_full, x_train, x_val, x_test, y_train_full, y_train, y_val, y_test
 
-def display_loss(self, save_path=None):
-        """
-        Plots the training and validation loss curves recorded during fit().
+# def display_loss(self, save_path=None):
+#         """
+#         Plots the training and validation loss curves recorded during fit().
 
-        Arguments:
-            - save_path {str} -- Filepath to save the plot image.
-                                If None, displays the plot instead.
-        """
-        logger.info("Plotting training and validation loss...")
-        plt.figure(figsize=(10, 6))
+#         Arguments:
+#             - save_path {str} -- Filepath to save the plot image.
+#                                 If None, displays the plot instead.
+#         """
+#         logger.info("Plotting training and validation loss...")
+#         plt.figure(figsize=(10, 6))
 
-        plt.plot(self.train_losses, label="Training Loss")
-        # Only plot validation loss if it was actually recorded
-        if self.val_losses:
-            plt.plot(self.val_losses, label="Validation Loss")
+#         plt.plot(self.train_losses, label="Training Loss")
+#         # Only plot validation loss if it was actually recorded
+#         if self.val_losses:
+#             plt.plot(self.val_losses, label="Validation Loss")
 
-        plt.yscale("log")
-        plt.title("Training & Validation Loss per Epoch")
-        plt.xlabel("Epoch")
-        plt.ylabel("Average Loss (MSE)")
-        plt.legend()
-        plt.grid(True)
+#         plt.yscale("log")
+#         plt.title("Training & Validation Loss per Epoch")
+#         plt.xlabel("Epoch")
+#         plt.ylabel("Average Loss (MSE)")
+#         plt.legend()
+#         plt.grid(True)
 
-        if save_path:
-            plt.savefig(save_path)
-            logger.info(f"Saved loss curve to {save_path}")
-        else:
-            plt.show()  # Show the plot interactively
+#         if save_path:
+#             plt.savefig(save_path)
+#             logger.info(f"Saved loss curve to {save_path}")
+#         else:
+#             plt.show()  # Show the plot interactively
 
-        return None
+#         return None
 
 def set_seed(seed):
     """
