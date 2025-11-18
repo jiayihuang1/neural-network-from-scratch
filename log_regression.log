@@ -78,3 +78,21 @@ Final model test RMSE: 54426.470661276435
 Final model test RMSE: 54851.632143008814
 
 2025-11-18 17:41:49 - __main__ - INFO - Final model saved successfully.
+2025-11-18 17:51:50 - __main__ - INFO - Using device: cpu
+2025-11-18 17:51:50 - __main__ - INFO - NeuralNet initialized with architecture [256, 256, 256, 256, 256, 1]
+2025-11-18 17:51:50 - __main__ - INFO - Activation function: relu
+2025-11-18 17:51:52 - __main__ - INFO - Epoch 1/1000, Avg. Train Loss: 7662168432.3097, Val. Loss: 4115495424.0000
+2025-11-18 17:52:32 - __main__ - INFO - Early stopping triggered at epoch 68
+2025-11-18 17:52:32 - __main__ - INFO - === Regression Model Performance ===
+2025-11-18 17:52:32 - __main__ - INFO - RMSE: 54851.63
+2025-11-18 17:52:32 - __main__ - INFO - MAE: 36053.29
+2025-11-18 17:52:32 - __main__ - INFO - R2: 0.78
+2025-11-18 17:52:32 - __main__ - INFO - ===================================
+2025-11-18 17:52:32 - __main__ - INFO - 
+Final model test RMSE: 54851.632143008814
+
+2025-11-18 17:52:32 - __main__ - INFO - Final model saved successfully.
+2025-11-18 17:52:32 - __main__ - INFO - Plotting training and validation loss...
+2025-11-18 17:52:32 - __main__ - INFO - Saved loss curve to loss_curve.png
+2025-11-18 17:52:32 - __main__ - INFO - Plotting predictions vs actuals...
+2025-11-18 17:52:33 - __main__ - INFO - Saved prediction plot to predictions_plot.png
