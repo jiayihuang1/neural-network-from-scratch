@@ -243,7 +243,6 @@ class Regressor:
         #                       ** END OF YOUR CODE **
         #######################################################################
 
-        
     def fit(self,
             x_train,
             y_train,
@@ -429,40 +428,37 @@ class Regressor:
 
         return float(rmse) # Replace this code with your own
 
-    def display_loss(self, save_path=None):
+    def plot_predictions(self, x, y, save_path=None):
         """
-        Plots the training and validation loss curves recorded during fit().
+        Plots scatter plot of actual vs predicted values.
 
         Arguments:
-            - save_path {str} -- Filepath to save the plot image.
-                                If None, displays the plot instead.
+            - x {pd.DataFrame} -- Input features.
+            - y {pd.DataFrame} -- Actual target values.
+            - save_path {str} -- Filepath to save the plot.
         """
-        logger.info("Plotting training and validation loss...")
-        plt.figure(figsize=(10, 6))
+        logger.info("Plotting predictions vs actuals...")
+        Y_pred = self.predict(x).flatten()
+        Y_true = y.values.flatten()
 
-        plt.plot(self.train_loss_history, label="Training Loss")
-        # Only plot validation loss if it was actually recorded
-        if self.val_loss_history:
-            plt.plot(self.val_loss_history, label="Validation Loss")
+        plt.figure(figsize=(8, 8))
+        plt.scatter(Y_true, Y_pred, alpha=0.3)
 
-        plt.yscale("log")
-        plt.title("Training & Validation Loss per Epoch")
-        plt.xlabel("Epoch")
-        plt.ylabel("Average Loss (MSE)")
-        plt.legend()
+        # Plot diagonal line for perfect predictions
+        min_val = min(np.min(Y_true), np.min(Y_pred))
+        max_val = max(np.max(Y_true), np.max(Y_pred))
+        plt.plot([min_val, max_val], [min_val, max_val], 'r--')
+
+        plt.xlabel("Actual Values")
+        plt.ylabel("Predicted Values")
+        plt.title("Actual vs. Predicted House Values")
         plt.grid(True)
 
         if save_path:
             plt.savefig(save_path)
-            logger.info(f"Saved loss curve to {save_path}")
+            logger.info(f"Saved prediction plot to {save_path}")
         else:
-            plt.show()  # Show the plot interactively
-
-        return None
-    
-        #######################################################################
-        #                       ** END OF YOUR CODE **
-        #######################################################################
+            plt.show()
 
 def save_regressor(trained_model): 
     """ 
@@ -588,45 +584,6 @@ def perform_hyperparameter_search(x, y):
     #                       ** END OF YOUR CODE **
     #######################################################################
 
-def analyze_hp_search(results):
-    """
-    Analyzes and plots the results of the hyperparameter search.
-    """
-    if not results:
-        logger.info("No results to analyze.")
-        return
-
-    result_list = []
-    for result in results:
-        result_list.append(result[0])
-
-    # Convert results list to a DataFrame for easy analysis
-    results_df = pd.DataFrame(result_list)
-
-    # Get all hyperparameter columns (exclude "score")
-    hp_cols = list(set(results_df.columns) - {"score"})
-
-    logger.info(f"\n=== Hyperparameter Performance Analysis (Average RMSE) ===")
-
-    for hp in hp_cols:
-        # Group by the hyperparameter and get the mean score
-        hp_performance = results_df.groupby(hp)["score"].mean().sort_values()
-
-        logger.info(f"\n--- Performance by {hp} ---")
-        logger.info(str(hp_performance))
-
-        # Plot and save
-        plt.figure(figsize=(8, 4))
-        hp_performance.plot(kind="bar")
-        plt.title(f"Average RMSE by {hp}")
-        plt.ylabel("Average RMSE")
-        plt.xticks(rotation=45)
-        plt.tight_layout()
-        plt.savefig(f"hp_analysis_{hp}.png")
-        logger.info(f"Saved plot to hp_analysis_{hp}.png")
-
-    return None
-
 def train_val_test_split(x,
                          y,
                          val_size=0.2,
@@ -666,41 +623,36 @@ def train_val_test_split(x,
     # Return train, val, test splits (plus train-val full set for KFold param search)
     return x_train_full, x_train, x_val, x_test, y_train_full, y_train, y_val, y_test
 
-def plot_hyperparameter_trends(hp_name, hp_values, train_losses, val_losses, save_path=None):
-    """
-    Plots training and validation loss trends for different hyperparameter values.
+def display_loss(self, save_path=None):
+        """
+        Plots the training and validation loss curves recorded during fit().
 
-    Arguments:
-        - hp_name {str} -- Name of the hyperparameter.
-        - hp_values {list} -- List of hyperparameter values.
-        - train_losses {list[list]} -- List of training losses corresponding to each hyperparameter value [[epoch_losses_hp1], [epoch_losses_hp2], ...]
-        - val_losses {list[list]} -- List of validation losses corresponding to each hyperparameter value [[epoch_losses_hp1], [epoch_losses_hp2], ...]
-        - save_path {str} -- Filepath to save the plot image. If None, displays the plot instead.
-    """
-    logger.info(f"Plotting hyperparameter trends for {hp_name}...")
-    plt.figure(figsize=(10, 6))
-    
-    # Plot a separate curve for each hyperparameter value
-    for i, hp_val in enumerate(hp_values):
-        epochs = range(1, len(train_losses[i]) + 1)
-        plt.plot(epochs, train_losses[i], label=f"{hp_name}={hp_val} (Train)")
-        if val_losses[i] is not None:
-            plt.plot(epochs, val_losses[i], label=f"{hp_name}={hp_val} (Val)", linestyle='--')
-    
-    plt.yscale("log")
-    plt.title(f"Training Curves for Different {hp_name}")
-    plt.xlabel("Epoch")
-    plt.ylabel("Loss (MSE)")
-    plt.legend()
-    plt.grid(True)
-    
-    if save_path:
-        plt.savefig(save_path)
-        logger.info(f"Saved hyperparameter trend plot to {save_path}")
-    else:
-        plt.show()
+        Arguments:
+            - save_path {str} -- Filepath to save the plot image.
+                                If None, displays the plot instead.
+        """
+        logger.info("Plotting training and validation loss...")
+        plt.figure(figsize=(10, 6))
 
-    return None
+        plt.plot(self.train_losses, label="Training Loss")
+        # Only plot validation loss if it was actually recorded
+        if self.val_losses:
+            plt.plot(self.val_losses, label="Validation Loss")
+
+        plt.yscale("log")
+        plt.title("Training & Validation Loss per Epoch")
+        plt.xlabel("Epoch")
+        plt.ylabel("Average Loss (MSE)")
+        plt.legend()
+        plt.grid(True)
+
+        if save_path:
+            plt.savefig(save_path)
+            logger.info(f"Saved loss curve to {save_path}")
+        else:
+            plt.show()  # Show the plot interactively
+
+        return None
 
 def set_seed(seed):
     """
@@ -718,30 +670,6 @@ def set_seed(seed):
         torch.cuda.manual_seed_all(seed)  # For multi-GPU setups
 
     return None
-
-def example_main():
-    output_label = "median_house_value"
-
-    # Use pandas to read CSV data as it contains various object types
-    # Feel free to use another CSV reader tool
-    # But remember that LabTS tests take Pandas DataFrame as inputs
-    data = pd.read_csv("housing.csv") 
-
-    # Splitting input and output
-    x_train = data.loc[:, data.columns != output_label]
-    y_train = data.loc[:, [output_label]]
-
-    # Training
-    # This example trains on the whole available dataset. 
-    # You probably want to separate some held-out data 
-    # to make sure the model isn't overfitting
-    regressor = Regressor(x_train, nb_epoch = 10)
-    regressor.fit(x_train, y_train)
-    save_regressor(regressor)
-
-    # Error
-    error = regressor.score(x_train, y_train)
-    print(f"\nRegressor error: {error}\n")
 
 def main():
     # Set random seed for reproducibility
@@ -761,10 +689,17 @@ def main():
     x_train_full, x_train, x_val, x_test, y_train_full, y_train, y_val, y_test = train_val_test_split(x, y, random_state=42)
 
     # Perform hyperparameter search
-    best_params, results = perform_hyperparameter_search(x_train_full, y_train_full)
+    # best_params, results = perform_hyperparameter_search(x_train_full, y_train_full)
 
-    # Analyze hyperparameter search results
-    analyze_hp_search(results)
+    best_params = {
+        "learning_rate": 0.001,
+        "weight_decay": 0.0,
+        "n_hidden_layers": 4,
+        "n_neurons": 128,
+        "batch_size": 64,
+        "architecture": "pyramid",
+        "activation": "relu"
+    }
 
     # Train final model with best hyperparameters
     final_model = Regressor(x_train,
@@ -789,28 +724,9 @@ def main():
     save_regressor(final_model)
     logger.info("Final model saved successfully.")
 
-    # # Plot hyperparameter trends (example for learning rate) - can modify as needed
-    # # Retrain with different learning rates and get list of epoch losses
-    # # Plot epoch losses vs learning rates
-    # hp_name = "learning_rate"
-    # hp_values = [0.001, 0.01]
-    # train_losses = []
-    # val_losses = []
-
-    # logger.info(f"Retraining models with different {hp_name} values to plot trends...")
-    # for lr in hp_values:
-    #     logger.info(f"Training model with {hp_name}={lr}...")
-    #     model = Regressor(x_train,
-    #                       nb_epoch=50,
-    #                       learning_rate=lr,
-    #                       training=True,
-    #                       )
-    #     model.fit(x_train, y_train, x_val, y_val)
-    #     train_losses.append(model.train_losses)
-    #     val_losses.append(model.val_losses if model.val_losses else None)
-
-    # save_path = f"hp_trends_{hp_name}.png"
-    # plot_hyperparameter_trends(hp_name, hp_values, train_losses, val_losses, save_path=save_path)
+    # Plot predictions and loss curves
+    final_model.plot_predictions(x_test, y_test, save_path="predictions_plot.png")
+    final_model.display_loss(save_path="loss_curve.png")
 
 if __name__ == "__main__":
     main()
