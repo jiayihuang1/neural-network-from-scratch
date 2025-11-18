@@ -144,12 +144,13 @@ class Regressor:
         self.architecture = architecture
         self.activation = activation
 
-        if torch.cuda.is_available():
-            self.device = torch.device("cuda")
-        elif torch.backends.mps.is_available():
-            self.device = torch.device("mps")
-        else:
-            self.device = torch.device("cpu")
+        # if torch.cuda.is_available():
+        #     self.device = torch.device("cuda")
+        # elif torch.backends.mps.is_available():
+        #     self.device = torch.device("mps")
+        # else:
+        #     self.device = torch.device("cpu")
+        self.device = torch.device("cpu")
         logger.info(f"Using device: {self.device}")
 
         # Initialize neural network
@@ -600,10 +601,10 @@ def set_seed(seed):
     # Set PyTorch's random seed for CPU
     torch.manual_seed(seed)
 
-    # Set PyTorch's random seed for GPU (if available)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed(seed)
-        torch.cuda.manual_seed_all(seed)  # For multi-GPU setups
+    # # Set PyTorch's random seed for GPU (if available)
+    # if torch.cuda.is_available():
+    #     torch.cuda.manual_seed(seed)
+    #     torch.cuda.manual_seed_all(seed)  # For multi-GPU setups
 
     return None
 
