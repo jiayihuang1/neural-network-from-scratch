@@ -345,7 +345,7 @@ class Regressor:
                         self.optimizer.load_state_dict(best_model_state["optimizer_state_dict"])
                         break
 
-        return self.network
+        return self
 
         #######################################################################
         #                       ** END OF YOUR CODE **
