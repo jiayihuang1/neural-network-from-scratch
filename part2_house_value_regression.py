@@ -15,6 +15,8 @@ from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 from sklearn.model_selection import train_test_split, KFold
 from torch.utils.data import TensorDataset, DataLoader
 
+print("Libraries successfully imported")
+
 # Create a custom logger
 custom_log_name = sys.argv[1] if len(sys.argv) > 1 else "regression"
 log_filename = f"log_{custom_log_name}.log"
